@@ -1,26 +1,71 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { useNavigate } from 'react-router-dom';
-import { Eye, EyeOff, Mail, Lock } from 'lucide-react';
+import { useNavigate, useLocation } from 'react-router-dom';
+import { Eye, EyeOff, Mail, Lock, User } from 'lucide-react';
+import { useAuth } from '@/contexts/AuthContext';
+import { toast } from 'sonner';
 
 const Login = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [name, setName] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isSignUp, setIsSignUp] = useState(false);
   const navigate = useNavigate();
+  const location = useLocation();
+  const { signIn, signUp, user } = useAuth();
+
+  const from = (location.state as { from?: { pathname: string } })?.from?.pathname || '/';
+
+  // Redirect if already logged in
+  useEffect(() => {
+    if (user) {
+      navigate(from, { replace: true });
+    }
+  }, [user, navigate, from]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
-    
-    // Simulated login - will be replaced with Supabase auth
-    setTimeout(() => {
+
+    try {
+      if (isSignUp) {
+        if (!name.trim()) {
+          toast.error('Por favor, insira seu nome');
+          setIsLoading(false);
+          return;
+        }
+        const { error } = await signUp(email, password, name);
+        if (error) {
+          if (error.message.includes('already registered')) {
+            toast.error('Este email já está cadastrado');
+          } else {
+            toast.error(error.message);
+          }
+        } else {
+          toast.success('Conta criada com sucesso!');
+          navigate(from, { replace: true });
+        }
+      } else {
+        const { error } = await signIn(email, password);
+        if (error) {
+          if (error.message.includes('Invalid login credentials')) {
+            toast.error('Email ou senha incorretos');
+          } else {
+            toast.error(error.message);
+          }
+        } else {
+          toast.success('Login realizado com sucesso!');
+          navigate(from, { replace: true });
+        }
+      }
+    } catch (error) {
+      toast.error('Ocorreu um erro. Tente novamente.');
+    } finally {
       setIsLoading(false);
-      navigate('/');
-    }, 1000);
+    }
   };
 
   return (
@@ -50,14 +95,20 @@ const Login = () => {
           </h2>
 
           <form onSubmit={handleSubmit} className="space-y-6">
-            {isSignUp && (
+          {isSignUp && (
               <div className="space-y-2">
                 <label className="text-sm text-muted-foreground">Nome</label>
-                <Input
-                  type="text"
-                  placeholder="Seu nome"
-                  className="h-12 bg-secondary/50 border-border/50 focus:border-primary"
-                />
+                <div className="relative">
+                  <User className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
+                  <Input
+                    type="text"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder="Seu nome"
+                    className="h-12 pl-10 bg-secondary/50 border-border/50 focus:border-primary"
+                    required
+                  />
+                </div>
               </div>
             )}
 
