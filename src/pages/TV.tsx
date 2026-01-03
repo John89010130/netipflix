@@ -1,19 +1,50 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Navbar } from '@/components/Navbar';
 import { ChannelCard } from '@/components/ChannelCard';
 import { VideoPlayer } from '@/components/VideoPlayer';
-import { mockChannels } from '@/data/mockData';
-import { Channel } from '@/types';
+import { supabase } from '@/integrations/supabase/client';
+import { Skeleton } from '@/components/ui/skeleton';
+
+interface Channel {
+  id: string;
+  name: string;
+  category: string;
+  country: string;
+  logo_url: string | null;
+  stream_url: string;
+  active: boolean;
+}
 
 const TV = () => {
+  const [channels, setChannels] = useState<Channel[]>([]);
+  const [loading, setLoading] = useState(true);
   const [currentVideo, setCurrentVideo] = useState<{ src: string; title: string } | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<string>('Todos');
 
-  const categories = ['Todos', ...new Set(mockChannels.map((c) => c.category))];
+  useEffect(() => {
+    const fetchChannels = async () => {
+      const { data, error } = await supabase
+        .from('channels')
+        .select('*')
+        .eq('active', true)
+        .order('name');
+
+      if (error) {
+        console.error('Error fetching channels:', error);
+      } else {
+        setChannels(data || []);
+      }
+      setLoading(false);
+    };
+
+    fetchChannels();
+  }, []);
+
+  const categories = ['Todos', ...new Set(channels.map((c) => c.category))].sort();
 
   const filteredChannels = selectedCategory === 'Todos'
-    ? mockChannels
-    : mockChannels.filter((c) => c.category === selectedCategory);
+    ? channels
+    : channels.filter((c) => c.category === selectedCategory);
 
   const handlePlayChannel = (channel: Channel) => {
     setCurrentVideo({
@@ -30,38 +61,55 @@ const TV = () => {
         {/* Header */}
         <div className="mb-8">
           <h1 className="font-display text-4xl md:text-5xl tracking-wide mb-4">TV ao Vivo</h1>
-          <p className="text-muted-foreground">Assista aos melhores canais ao vivo</p>
+          <p className="text-muted-foreground">Assista aos melhores canais ao vivo • {channels.length} canais disponíveis</p>
         </div>
 
         {/* Category Filter */}
         <div className="flex gap-2 mb-8 overflow-x-auto scrollbar-hide pb-2">
-          {categories.map((category) => (
-            <button
-              key={category}
-              onClick={() => setSelectedCategory(category)}
-              className={`px-4 py-2 rounded-full text-sm font-medium transition-all whitespace-nowrap ${
-                selectedCategory === category
-                  ? 'bg-primary text-primary-foreground'
-                  : 'bg-secondary text-secondary-foreground hover:bg-secondary/80'
-              }`}
-            >
-              {category}
-            </button>
-          ))}
+          {loading ? (
+            Array.from({ length: 6 }).map((_, i) => (
+              <Skeleton key={i} className="h-10 w-24 rounded-full" />
+            ))
+          ) : (
+            categories.map((category) => (
+              <button
+                key={category}
+                onClick={() => setSelectedCategory(category)}
+                className={`px-4 py-2 rounded-full text-sm font-medium transition-all whitespace-nowrap ${
+                  selectedCategory === category
+                    ? 'bg-primary text-primary-foreground'
+                    : 'bg-secondary text-secondary-foreground hover:bg-secondary/80'
+                }`}
+              >
+                {category}
+              </button>
+            ))
+          )}
         </div>
 
         {/* Channels Grid */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
-          {filteredChannels.map((channel) => (
-            <ChannelCard
-              key={channel.id}
-              channel={channel}
-              onPlay={handlePlayChannel}
-            />
-          ))}
-        </div>
+        {loading ? (
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+            {Array.from({ length: 12 }).map((_, i) => (
+              <Skeleton key={i} className="aspect-video rounded-lg" />
+            ))}
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+            {filteredChannels.map((channel) => (
+              <ChannelCard
+                key={channel.id}
+                channel={{
+                  ...channel,
+                  logo_url: channel.logo_url || '',
+                }}
+                onPlay={() => handlePlayChannel(channel)}
+              />
+            ))}
+          </div>
+        )}
 
-        {filteredChannels.length === 0 && (
+        {!loading && filteredChannels.length === 0 && (
           <div className="text-center py-16">
             <p className="text-muted-foreground">Nenhum canal encontrado nesta categoria.</p>
           </div>
