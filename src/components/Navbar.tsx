@@ -1,7 +1,15 @@
 import { useState, useEffect } from 'react';
-import { Search, Bell, ChevronDown, Menu, X } from 'lucide-react';
+import { Search, Bell, ChevronDown, Menu, X, LogOut, Settings, User } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { useAuth } from '@/contexts/AuthContext';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 
 const navLinks = [
   { label: 'Início', href: '/' },
@@ -15,6 +23,8 @@ export const Navbar = () => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const location = useLocation();
+  const navigate = useNavigate();
+  const { profile, signOut, isAdmin, permissions } = useAuth();
 
   useEffect(() => {
     const handleScroll = () => {
@@ -24,6 +34,18 @@ export const Navbar = () => {
     window.addEventListener('scroll', handleScroll);
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
+
+  const handleSignOut = async () => {
+    await signOut();
+    navigate('/login');
+  };
+
+  // Filter nav links based on permissions
+  const filteredNavLinks = navLinks.filter(link => {
+    if (link.href === '/tv' && permissions && !permissions.can_tv) return false;
+    if (link.href === '/movies' && permissions && !permissions.can_movies) return false;
+    return true;
+  });
 
   return (
     <header
@@ -42,7 +64,7 @@ export const Navbar = () => {
 
         {/* Desktop Navigation */}
         <div className="hidden md:flex items-center gap-6">
-          {navLinks.map((link) => (
+          {filteredNavLinks.map((link) => (
             <Link
               key={link.href}
               to={link.href}
@@ -54,6 +76,17 @@ export const Navbar = () => {
               {link.label}
             </Link>
           ))}
+          {isAdmin && (
+            <Link
+              to="/admin"
+              className={cn(
+                "text-sm transition-colors hover:text-foreground",
+                location.pathname === '/admin' ? "text-foreground font-medium" : "text-muted-foreground"
+              )}
+            >
+              Admin
+            </Link>
+          )}
         </div>
 
         {/* Right Side Actions */}
@@ -84,11 +117,37 @@ export const Navbar = () => {
             <Bell className="h-5 w-5" />
           </button>
 
-          {/* Profile */}
-          <button className="hidden md:flex items-center gap-2">
-            <div className="h-8 w-8 rounded bg-primary" />
-            <ChevronDown className="h-4 w-4" />
-          </button>
+          {/* Profile Dropdown */}
+          <DropdownMenu>
+            <DropdownMenuTrigger className="hidden md:flex items-center gap-2 outline-none">
+              <div className="h-8 w-8 rounded bg-primary flex items-center justify-center text-primary-foreground font-medium">
+                {profile?.name?.charAt(0).toUpperCase() || 'U'}
+              </div>
+              <ChevronDown className="h-4 w-4" />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-56">
+              <div className="px-2 py-2">
+                <p className="font-medium">{profile?.name || 'Usuário'}</p>
+                <p className="text-xs text-muted-foreground">{profile?.email}</p>
+              </div>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem>
+                <User className="mr-2 h-4 w-4" />
+                Meu Perfil
+              </DropdownMenuItem>
+              {isAdmin && (
+                <DropdownMenuItem onClick={() => navigate('/admin')}>
+                  <Settings className="mr-2 h-4 w-4" />
+                  Painel Admin
+                </DropdownMenuItem>
+              )}
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={handleSignOut} className="text-destructive">
+                <LogOut className="mr-2 h-4 w-4" />
+                Sair
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
 
           {/* Mobile Menu Toggle */}
           <button
@@ -104,7 +163,7 @@ export const Navbar = () => {
       {isMobileMenuOpen && (
         <div className="md:hidden bg-background/95 backdrop-blur-md border-t border-border animate-slide-up">
           <div className="flex flex-col px-4 py-4 gap-4">
-            {navLinks.map((link) => (
+            {filteredNavLinks.map((link) => (
               <Link
                 key={link.href}
                 to={link.href}
@@ -117,12 +176,34 @@ export const Navbar = () => {
                 {link.label}
               </Link>
             ))}
-            <div className="flex items-center gap-4 pt-4 border-t border-border">
-              <div className="h-10 w-10 rounded bg-primary" />
-              <div>
-                <p className="font-medium">Usuário</p>
-                <p className="text-sm text-muted-foreground">Gerenciar perfil</p>
+            {isAdmin && (
+              <Link
+                to="/admin"
+                onClick={() => setIsMobileMenuOpen(false)}
+                className={cn(
+                  "text-lg transition-colors hover:text-foreground py-2",
+                  location.pathname === '/admin' ? "text-foreground font-medium" : "text-muted-foreground"
+                )}
+              >
+                Admin
+              </Link>
+            )}
+            <div className="flex items-center justify-between pt-4 border-t border-border">
+              <div className="flex items-center gap-4">
+                <div className="h-10 w-10 rounded bg-primary flex items-center justify-center text-primary-foreground font-medium">
+                  {profile?.name?.charAt(0).toUpperCase() || 'U'}
+                </div>
+                <div>
+                  <p className="font-medium">{profile?.name || 'Usuário'}</p>
+                  <p className="text-sm text-muted-foreground">{profile?.email}</p>
+                </div>
               </div>
+              <button
+                onClick={handleSignOut}
+                className="p-2 text-destructive hover:bg-destructive/10 rounded"
+              >
+                <LogOut className="h-5 w-5" />
+              </button>
             </div>
           </div>
         </div>
