@@ -1,0 +1,52 @@
+import { Play, Tv } from 'lucide-react';
+import { Channel } from '@/types';
+import { cn } from '@/lib/utils';
+
+interface ChannelCardProps {
+  channel: Channel;
+  onPlay?: (channel: Channel) => void;
+}
+
+export const ChannelCard = ({ channel, onPlay }: ChannelCardProps) => {
+  return (
+    <div
+      onClick={() => onPlay?.(channel)}
+      className={cn(
+        "relative flex-shrink-0 w-[140px] md:w-[180px] cursor-pointer transition-all duration-300 hover:scale-105 group"
+      )}
+    >
+      <div className="relative aspect-video overflow-hidden rounded-lg bg-secondary">
+        {/* Logo Container */}
+        <div className="absolute inset-0 flex items-center justify-center p-4">
+          <img
+            src={channel.logo_url}
+            alt={channel.name}
+            className="max-h-full max-w-full object-contain filter brightness-0 invert"
+            onError={(e) => {
+              (e.target as HTMLImageElement).style.display = 'none';
+            }}
+          />
+        </div>
+
+        {/* Hover Overlay */}
+        <div className="absolute inset-0 bg-primary/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+          <div className="h-12 w-12 rounded-full bg-foreground text-background flex items-center justify-center">
+            <Play className="h-6 w-6 fill-current ml-1" />
+          </div>
+        </div>
+
+        {/* Live Badge */}
+        <div className="absolute top-2 left-2 flex items-center gap-1 rounded bg-primary px-2 py-0.5">
+          <span className="h-2 w-2 rounded-full bg-foreground animate-pulse" />
+          <span className="text-[10px] font-bold uppercase">Ao Vivo</span>
+        </div>
+      </div>
+
+      {/* Channel Info */}
+      <div className="mt-2 px-1">
+        <h3 className="font-medium text-sm truncate">{channel.name}</h3>
+        <p className="text-xs text-muted-foreground">{channel.category}</p>
+      </div>
+    </div>
+  );
+};
