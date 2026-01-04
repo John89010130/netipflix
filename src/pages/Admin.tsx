@@ -112,6 +112,25 @@ const Admin = () => {
     return channels;
   };
 
+  // Convert GitHub URLs to raw format
+  const convertToRawUrl = (url: string): string => {
+    const trimmedUrl = url.trim();
+    
+    // GitHub blob URL -> raw
+    if (trimmedUrl.includes('github.com') && trimmedUrl.includes('/blob/')) {
+      return trimmedUrl
+        .replace('github.com', 'raw.githubusercontent.com')
+        .replace('/blob/', '/');
+    }
+    
+    // Already raw.githubusercontent.com - return as is
+    if (trimmedUrl.includes('raw.githubusercontent.com')) {
+      return trimmedUrl;
+    }
+    
+    return trimmedUrl;
+  };
+
   const handleImportM3U = async () => {
     if (!m3uContent.trim()) {
       toast.error('Cole o conteúdo M3U ou uma URL');
@@ -124,14 +143,23 @@ const Admin = () => {
 
       // If it's a URL, fetch it
       if (m3uContent.trim().startsWith('http')) {
-        const response = await fetch(m3uContent.trim());
+        const rawUrl = convertToRawUrl(m3uContent.trim());
+        console.log('Fetching M3U from:', rawUrl);
+        
+        // Use edge function as proxy to avoid CORS
+        const response = await fetch(`${SUPABASE_URL}/functions/v1/stream-proxy?url=${encodeURIComponent(rawUrl)}`);
+        
+        if (!response.ok) {
+          throw new Error(`Erro ao buscar M3U: ${response.status}`);
+        }
+        
         content = await response.text();
       }
 
       const parsedChannels = parseM3U(content);
       
       if (parsedChannels.length === 0) {
-        toast.error('Nenhum canal encontrado no M3U');
+        toast.error('Nenhum canal encontrado no M3U. Verifique o formato.');
         return;
       }
 
@@ -155,7 +183,7 @@ const Admin = () => {
       fetchChannels();
     } catch (error) {
       console.error('Import error:', error);
-      toast.error('Erro ao importar M3U');
+      toast.error('Erro ao importar M3U. Tente colar o conteúdo diretamente.');
     } finally {
       setImporting(false);
     }
