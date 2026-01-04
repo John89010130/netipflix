@@ -215,6 +215,48 @@ export type Database = {
         }
         Relationships: []
       }
+      stream_test_jobs: {
+        Row: {
+          completed_at: string | null
+          created_at: string
+          created_by: string | null
+          error_count: number
+          id: string
+          offline_count: number
+          online_count: number
+          started_at: string | null
+          status: string
+          tested_channels: number
+          total_channels: number
+        }
+        Insert: {
+          completed_at?: string | null
+          created_at?: string
+          created_by?: string | null
+          error_count?: number
+          id?: string
+          offline_count?: number
+          online_count?: number
+          started_at?: string | null
+          status?: string
+          tested_channels?: number
+          total_channels?: number
+        }
+        Update: {
+          completed_at?: string | null
+          created_at?: string
+          created_by?: string | null
+          error_count?: number
+          id?: string
+          offline_count?: number
+          online_count?: number
+          started_at?: string | null
+          status?: string
+          tested_channels?: number
+          total_channels?: number
+        }
+        Relationships: []
+      }
       user_roles: {
         Row: {
           created_at: string
