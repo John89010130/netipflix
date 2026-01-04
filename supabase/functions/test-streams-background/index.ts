@@ -21,7 +21,7 @@ async function testStream(url: string, channelId: string): Promise<StreamTestRes
   
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+    const timeoutId = setTimeout(() => controller.abort(), 8000); // 8 second timeout
     
     const response = await fetch(url, {
       method: 'GET',
@@ -83,14 +83,23 @@ async function testStream(url: string, channelId: string): Promise<StreamTestRes
   }
 }
 
-async function runTestJob(supabase: any, jobId: string) {
-  console.log(`Starting test job ${jobId}`);
+// Process a batch of channels and schedule next batch
+async function processBatch(supabase: any, jobId: string, offset: number) {
+  const BATCH_SIZE = 50; // Process 50 channels per invocation
   
-  // Update job status to running
-  await supabase
+  console.log(`Processing batch at offset ${offset} for job ${jobId}`);
+  
+  // Get job to check if still running
+  const { data: job, error: jobError } = await supabase
     .from('stream_test_jobs')
-    .update({ status: 'running', started_at: new Date().toISOString() })
-    .eq('id', jobId);
+    .select('*')
+    .eq('id', jobId)
+    .single();
+  
+  if (jobError || !job || job.status !== 'running') {
+    console.log('Job not running, stopping');
+    return;
+  }
   
   // Get channels not tested in the last 24 hours
   const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
@@ -99,35 +108,39 @@ async function runTestJob(supabase: any, jobId: string) {
     .from('channels')
     .select('id, stream_url')
     .or(`last_tested_at.is.null,last_tested_at.lt.${twentyFourHoursAgo}`)
-    .order('name');
+    .order('name')
+    .range(offset, offset + BATCH_SIZE - 1);
   
-  if (channelsError || !channels) {
+  if (channelsError) {
     console.error('Error fetching channels:', channelsError);
-    await supabase
-      .from('stream_test_jobs')
-      .update({ status: 'failed', completed_at: new Date().toISOString() })
-      .eq('id', jobId);
     return;
   }
   
-  const total = channels.length;
-  let tested = 0;
-  let online = 0;
-  let offline = 0;
-  let errors = 0;
+  if (!channels || channels.length === 0) {
+    // No more channels, mark job as completed
+    await supabase
+      .from('stream_test_jobs')
+      .update({
+        status: 'completed',
+        completed_at: new Date().toISOString()
+      })
+      .eq('id', jobId);
+    
+    console.log(`Job ${jobId} completed`);
+    return;
+  }
   
-  // Update total
-  await supabase
-    .from('stream_test_jobs')
-    .update({ total_channels: total })
-    .eq('id', jobId);
+  console.log(`Testing ${channels.length} channels...`);
   
-  console.log(`Testing ${total} channels...`);
+  let online = job.online_count || 0;
+  let offline = job.offline_count || 0;
+  let errors = job.error_count || 0;
+  let tested = job.tested_channels || 0;
   
-  // Test in batches of 10
-  const batchSize = 10;
-  for (let i = 0; i < channels.length; i += batchSize) {
-    const batch = channels.slice(i, i + batchSize) as { id: string; stream_url: string }[];
+  // Test in smaller batches of 5 for parallel processing
+  const testBatchSize = 5;
+  for (let i = 0; i < channels.length; i += testBatchSize) {
+    const batch = channels.slice(i, i + testBatchSize) as { id: string; stream_url: string }[];
     
     const results = await Promise.all(
       batch.map(ch => testStream(ch.stream_url, ch.id))
@@ -151,31 +164,50 @@ async function runTestJob(supabase: any, jobId: string) {
       else if (result.status === 'offline') offline++;
       else errors++;
     }
-    
-    // Update job progress
-    await supabase
-      .from('stream_test_jobs')
-      .update({
-        tested_channels: tested,
-        online_count: online,
-        offline_count: offline,
-        error_count: errors
-      })
-      .eq('id', jobId);
-    
-    console.log(`Progress: ${tested}/${total}`);
   }
   
-  // Mark job as completed
+  // Update job progress
   await supabase
     .from('stream_test_jobs')
     .update({
-      status: 'completed',
-      completed_at: new Date().toISOString()
+      tested_channels: tested,
+      online_count: online,
+      offline_count: offline,
+      error_count: errors
     })
     .eq('id', jobId);
   
-  console.log(`Job ${jobId} completed: ${online} online, ${offline} offline, ${errors} errors`);
+  console.log(`Progress: ${tested} tested (${online} online, ${offline} offline, ${errors} errors)`);
+  
+  // Schedule next batch by calling itself
+  const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
+  const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
+  
+  // Only continue if there are more channels
+  if (channels.length === BATCH_SIZE) {
+    console.log('Scheduling next batch...');
+    
+    // Use fetch to call the next batch
+    fetch(`${supabaseUrl}/functions/v1/test-streams-background`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${supabaseKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ action: 'continue', jobId, offset: offset + BATCH_SIZE })
+    }).catch(err => console.error('Error scheduling next batch:', err));
+  } else {
+    // No more channels, mark as completed
+    await supabase
+      .from('stream_test_jobs')
+      .update({
+        status: 'completed',
+        completed_at: new Date().toISOString()
+      })
+      .eq('id', jobId);
+    
+    console.log(`Job ${jobId} completed: ${online} online, ${offline} offline, ${errors} errors`);
+  }
 }
 
 serve(async (req) => {
@@ -207,8 +239,31 @@ serve(async (req) => {
       );
     }
     
-    // Start new test job
+    // Handle POST requests
     if (req.method === 'POST') {
+      let body: any = {};
+      try {
+        body = await req.json();
+      } catch {
+        // No body or invalid JSON
+      }
+      
+      // Continue existing job
+      if (body.action === 'continue' && body.jobId) {
+        console.log(`Continuing job ${body.jobId} at offset ${body.offset}`);
+        
+        // Process batch in background
+        (globalThis as any).EdgeRuntime?.waitUntil(
+          processBatch(supabase, body.jobId, body.offset || 0)
+        );
+        
+        return new Response(
+          JSON.stringify({ message: 'Batch processing' }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+      
+      // Start new test job
       // Check if there's already a running job
       const { data: runningJob } = await supabase
         .from('stream_test_jobs')
@@ -223,10 +278,21 @@ serve(async (req) => {
         );
       }
       
+      // Count total channels to test
+      const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+      const { count } = await supabase
+        .from('channels')
+        .select('id', { count: 'exact', head: true })
+        .or(`last_tested_at.is.null,last_tested_at.lt.${twentyFourHoursAgo}`);
+      
       // Create new job
       const { data: newJob, error: createError } = await supabase
         .from('stream_test_jobs')
-        .insert({ status: 'pending' })
+        .insert({ 
+          status: 'running', 
+          started_at: new Date().toISOString(),
+          total_channels: count || 0
+        })
         .select()
         .single();
       
@@ -234,8 +300,12 @@ serve(async (req) => {
         throw createError;
       }
       
-      // Run the job in background using globalThis for EdgeRuntime
-      (globalThis as any).EdgeRuntime?.waitUntil(runTestJob(supabase, newJob.id));
+      console.log(`Created new job ${newJob.id} with ${count} channels to test`);
+      
+      // Start processing in background
+      (globalThis as any).EdgeRuntime?.waitUntil(
+        processBatch(supabase, newJob.id, 0)
+      );
       
       return new Response(
         JSON.stringify({ message: 'Test started', job: newJob }),
