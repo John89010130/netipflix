@@ -14,6 +14,36 @@ export type Database = {
   }
   public: {
     Tables: {
+      active_sessions: {
+        Row: {
+          device_info: string | null
+          id: string
+          ip_address: string | null
+          last_activity: string
+          profile_id: string | null
+          started_at: string
+          user_id: string
+        }
+        Insert: {
+          device_info?: string | null
+          id?: string
+          ip_address?: string | null
+          last_activity?: string
+          profile_id?: string | null
+          started_at?: string
+          user_id: string
+        }
+        Update: {
+          device_info?: string | null
+          id?: string
+          ip_address?: string | null
+          last_activity?: string
+          profile_id?: string | null
+          started_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       channels: {
         Row: {
           active: boolean
@@ -53,6 +83,72 @@ export type Database = {
           name?: string
           stream_url?: string
           updated_at?: string
+        }
+        Relationships: []
+      }
+      client_profiles: {
+        Row: {
+          avatar_url: string | null
+          created_at: string
+          id: string
+          is_kids_profile: boolean
+          name: string
+          parent_user_id: string
+          pin: string | null
+          updated_at: string
+        }
+        Insert: {
+          avatar_url?: string | null
+          created_at?: string
+          id?: string
+          is_kids_profile?: boolean
+          name: string
+          parent_user_id: string
+          pin?: string | null
+          updated_at?: string
+        }
+        Update: {
+          avatar_url?: string | null
+          created_at?: string
+          id?: string
+          is_kids_profile?: boolean
+          name?: string
+          parent_user_id?: string
+          pin?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      client_subscriptions: {
+        Row: {
+          created_at: string
+          expires_at: string | null
+          id: string
+          is_active: boolean
+          max_screens: number
+          price_per_screen: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          expires_at?: string | null
+          id?: string
+          is_active?: boolean
+          max_screens?: number
+          price_per_screen?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          expires_at?: string | null
+          id?: string
+          is_active?: boolean
+          max_screens?: number
+          price_per_screen?: number
+          updated_at?: string
+          user_id?: string
         }
         Relationships: []
       }
@@ -257,6 +353,71 @@ export type Database = {
         }
         Relationships: []
       }
+      support_conversations: {
+        Row: {
+          created_at: string
+          id: string
+          status: string
+          subject: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          status?: string
+          subject: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          status?: string
+          subject?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      support_messages: {
+        Row: {
+          conversation_id: string
+          created_at: string
+          id: string
+          message: string
+          read_at: string | null
+          sender_id: string
+          sender_type: string
+        }
+        Insert: {
+          conversation_id: string
+          created_at?: string
+          id?: string
+          message: string
+          read_at?: string | null
+          sender_id: string
+          sender_type: string
+        }
+        Update: {
+          conversation_id?: string
+          created_at?: string
+          id?: string
+          message?: string
+          read_at?: string | null
+          sender_id?: string
+          sender_type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "support_messages_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "support_conversations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       user_roles: {
         Row: {
           created_at: string
@@ -314,6 +475,12 @@ export type Database = {
         Args: { _content_type: string; _user_id: string }
         Returns: boolean
       }
+      check_session_availability: { Args: { _user_id: string }; Returns: Json }
+      cleanup_inactive_sessions: { Args: never; Returns: number }
+      count_user_profiles: {
+        Args: { _parent_user_id: string }
+        Returns: number
+      }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
@@ -322,6 +489,7 @@ export type Database = {
         Returns: boolean
       }
       is_admin: { Args: { _user_id: string }; Returns: boolean }
+      is_parent_user: { Args: { _user_id: string }; Returns: boolean }
     }
     Enums: {
       app_role: "ADMIN_MASTER" | "ADMIN" | "USER"

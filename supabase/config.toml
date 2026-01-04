@@ -8,3 +8,6 @@ verify_jwt = false
 
 [functions.test-streams-background]
 verify_jwt = false
+
+[functions.session-heartbeat]
+verify_jwt = false

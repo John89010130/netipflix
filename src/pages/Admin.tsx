@@ -19,9 +19,13 @@ import {
   RefreshCw,
   Tv,
   Film,
-  AlertCircle
+  AlertCircle,
+  Users,
+  MessageCircle
 } from 'lucide-react';
 import { Navigate } from 'react-router-dom';
+import { AdminClients } from '@/components/admin/AdminClients';
+import { AdminSupport } from '@/components/admin/AdminSupport';
 
 interface Channel {
   id: string;
@@ -652,10 +656,18 @@ const Admin = () => {
           </div>
 
           <Tabs defaultValue="channels" className="space-y-6">
-            <TabsList className="grid w-full grid-cols-3">
+            <TabsList className="grid w-full grid-cols-5">
               <TabsTrigger value="channels">Canais</TabsTrigger>
               <TabsTrigger value="import">Importar M3U</TabsTrigger>
               <TabsTrigger value="links">Links Usados</TabsTrigger>
+              <TabsTrigger value="clients" className="gap-1">
+                <Users className="h-4 w-4" />
+                Clientes
+              </TabsTrigger>
+              <TabsTrigger value="support" className="gap-1">
+                <MessageCircle className="h-4 w-4" />
+                Suporte
+              </TabsTrigger>
             </TabsList>
 
             {/* Channels Tab */}
@@ -991,6 +1003,15 @@ const Admin = () => {
                   </div>
                 </CardContent>
               </Card>
+            </TabsContent>
+            {/* Clients Tab */}
+            <TabsContent value="clients">
+              <AdminClients />
+            </TabsContent>
+
+            {/* Support Tab */}
+            <TabsContent value="support">
+              <AdminSupport />
             </TabsContent>
           </Tabs>
         </div>
