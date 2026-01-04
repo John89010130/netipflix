@@ -51,11 +51,14 @@ export type Database = {
           content_type: string
           country: string
           created_at: string
+          episode_number: number | null
           id: string
           last_test_status: string | null
           last_tested_at: string | null
           logo_url: string | null
           name: string
+          season_number: number | null
+          series_title: string | null
           stream_url: string
           updated_at: string
         }
@@ -65,11 +68,14 @@ export type Database = {
           content_type?: string
           country?: string
           created_at?: string
+          episode_number?: number | null
           id?: string
           last_test_status?: string | null
           last_tested_at?: string | null
           logo_url?: string | null
           name: string
+          season_number?: number | null
+          series_title?: string | null
           stream_url: string
           updated_at?: string
         }
@@ -79,11 +85,14 @@ export type Database = {
           content_type?: string
           country?: string
           created_at?: string
+          episode_number?: number | null
           id?: string
           last_test_status?: string | null
           last_tested_at?: string | null
           logo_url?: string | null
           name?: string
+          season_number?: number | null
+          series_title?: string | null
           stream_url?: string
           updated_at?: string
         }
@@ -487,6 +496,14 @@ export type Database = {
       determine_content_type: {
         Args: { p_category: string; p_name: string }
         Returns: string
+      }
+      extract_series_info: {
+        Args: { p_name: string }
+        Returns: {
+          episode_num: number
+          season_num: number
+          series_title: string
+        }[]
       }
       has_role: {
         Args: {
