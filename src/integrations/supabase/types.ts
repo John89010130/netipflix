@@ -48,6 +48,7 @@ export type Database = {
         Row: {
           active: boolean
           category: string
+          content_type: string
           country: string
           created_at: string
           id: string
@@ -61,6 +62,7 @@ export type Database = {
         Insert: {
           active?: boolean
           category: string
+          content_type?: string
           country?: string
           created_at?: string
           id?: string
@@ -74,6 +76,7 @@ export type Database = {
         Update: {
           active?: boolean
           category?: string
+          content_type?: string
           country?: string
           created_at?: string
           id?: string
@@ -480,6 +483,10 @@ export type Database = {
       count_user_profiles: {
         Args: { _parent_user_id: string }
         Returns: number
+      }
+      determine_content_type: {
+        Args: { p_category: string; p_name: string }
+        Returns: string
       }
       has_role: {
         Args: {

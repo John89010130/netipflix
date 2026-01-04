@@ -40,13 +40,14 @@ const TV = () => {
     return () => clearTimeout(timer);
   }, [searchQuery]);
 
-  // Fetch categories once
+  // Fetch categories once - only TV content
   useEffect(() => {
     const fetchCategories = async () => {
       const { data, error } = await supabase
         .from('channels')
         .select('category')
-        .eq('active', true);
+        .eq('active', true)
+        .eq('content_type', 'TV');
 
       if (!error && data) {
         const uniqueCategories = [...new Set(data.map(c => c.category))].sort();
@@ -59,13 +60,14 @@ const TV = () => {
     fetchCategories();
   }, []);
 
-  // Fetch total count
+  // Fetch total count - only TV content
   useEffect(() => {
     const fetchCount = async () => {
       let query = supabase
         .from('channels')
         .select('*', { count: 'exact', head: true })
-        .eq('active', true);
+        .eq('active', true)
+        .eq('content_type', 'TV');
 
       if (selectedCategory !== 'Todos' && selectedCategory !== '🔞 Adulto') {
         query = query.eq('category', selectedCategory);
@@ -89,12 +91,12 @@ const TV = () => {
 
     const from = reset ? 0 : currentLength;
 
-    // Fetch BR channels first by using a raw SQL ordering approach
-    // We'll fetch all and sort client-side for proper BR: priority
+    // Fetch only TV content type
     let query = supabase
       .from('channels')
       .select('*')
       .eq('active', true)
+      .eq('content_type', 'TV')
       .range(from, from + PAGE_SIZE - 1);
 
     if (selectedCategory !== 'Todos' && selectedCategory !== '🔞 Adulto') {

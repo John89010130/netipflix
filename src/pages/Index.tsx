@@ -20,19 +20,8 @@ interface Channel {
   logo_url: string | null;
   stream_url: string;
   active: boolean;
+  content_type: string;
 }
-
-// Helper to check if category is film-related
-const isFilmCategory = (category: string): boolean => {
-  const lower = category.toLowerCase();
-  return lower.includes('filme') || lower.includes('movie') || lower.includes('film');
-};
-
-// Helper to check if category is series-related
-const isSeriesCategory = (category: string): boolean => {
-  const lower = category.toLowerCase();
-  return lower.includes('serie') || lower.includes('netflix');
-};
 
 const Index = () => {
   const [currentVideo, setCurrentVideo] = useState<{ src: string; title: string; poster?: string } | null>(null);
@@ -64,10 +53,10 @@ const Index = () => {
         // Filter out adult content
         const safeChannels = data.filter(c => !isAdultCategory(c.category));
         
-        // Separate by type
-        const films = safeChannels.filter(c => isFilmCategory(c.category));
-        const series = safeChannels.filter(c => isSeriesCategory(c.category));
-        const tv = safeChannels.filter(c => !isFilmCategory(c.category) && !isSeriesCategory(c.category));
+        // Separate by content_type
+        const films = safeChannels.filter(c => c.content_type === 'MOVIE');
+        const series = safeChannels.filter(c => c.content_type === 'SERIES');
+        const tv = safeChannels.filter(c => c.content_type === 'TV');
         
         setFilmChannels(films.slice(0, 50));
         setSeriesChannels(series.slice(0, 50));
