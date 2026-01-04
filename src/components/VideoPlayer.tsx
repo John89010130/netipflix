@@ -33,16 +33,59 @@ export const VideoPlayer = ({ src, title, poster, onClose, autoPlay = true }: Vi
   const [showControls, setShowControls] = useState(true);
   const [volume, setVolume] = useState(1);
 
+  const [error, setError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
+    
+    setError(null);
+    setIsLoading(true);
+
+    // Check for mixed content issues (HTTP on HTTPS page)
+    const isMixedContent = window.location.protocol === 'https:' && src.startsWith('http:');
+    
+    if (isMixedContent) {
+      setError('Este stream não pode ser reproduzido por restrições de segurança do navegador (HTTP em página HTTPS).');
+      setIsLoading(false);
+      return;
+    }
 
     if (Hls.isSupported() && src.includes('.m3u8')) {
-      const hls = new Hls();
+      const hls = new Hls({
+        enableWorker: true,
+        lowLatencyMode: false,
+        xhrSetup: (xhr) => {
+          xhr.timeout = 15000;
+        }
+      });
+      
       hls.loadSource(src);
       hls.attachMedia(video);
+      
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
-        if (autoPlay) video.play();
+        setIsLoading(false);
+        if (autoPlay) video.play().catch(() => setIsPlaying(false));
+      });
+      
+      hls.on(Hls.Events.ERROR, (event, data) => {
+        console.error('HLS Error:', data);
+        if (data.fatal) {
+          setIsLoading(false);
+          switch (data.type) {
+            case Hls.ErrorTypes.NETWORK_ERROR:
+              setError('Erro de rede ao carregar o stream. O servidor pode estar offline ou inacessível.');
+              break;
+            case Hls.ErrorTypes.MEDIA_ERROR:
+              setError('Erro de mídia. O formato do stream pode não ser compatível.');
+              hls.recoverMediaError();
+              break;
+            default:
+              setError('Não foi possível reproduzir este stream. Ele pode estar offline.');
+              break;
+          }
+        }
       });
 
       return () => {
@@ -50,7 +93,21 @@ export const VideoPlayer = ({ src, title, poster, onClose, autoPlay = true }: Vi
       };
     } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
       video.src = src;
-      if (autoPlay) video.play();
+      video.addEventListener('loadeddata', () => setIsLoading(false));
+      video.addEventListener('error', () => {
+        setIsLoading(false);
+        setError('Não foi possível carregar o vídeo.');
+      });
+      if (autoPlay) video.play().catch(() => setIsPlaying(false));
+    } else {
+      // Try direct source for non-HLS
+      video.src = src;
+      video.addEventListener('loadeddata', () => setIsLoading(false));
+      video.addEventListener('error', () => {
+        setIsLoading(false);
+        setError('Formato de vídeo não suportado pelo navegador.');
+      });
+      if (autoPlay) video.play().catch(() => setIsPlaying(false));
     }
   }, [src, autoPlay]);
 
@@ -151,6 +208,28 @@ export const VideoPlayer = ({ src, title, poster, onClose, autoPlay = true }: Vi
       ref={containerRef}
       className="fixed inset-0 z-50 bg-background flex items-center justify-center"
     >
+      {/* Loading Spinner */}
+      {isLoading && !error && (
+        <div className="absolute inset-0 flex items-center justify-center z-10">
+          <div className="h-12 w-12 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+        </div>
+      )}
+
+      {/* Error Message */}
+      {error && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center z-10 p-8">
+          <div className="bg-destructive/20 border border-destructive/50 rounded-lg p-6 max-w-md text-center">
+            <p className="text-destructive-foreground mb-4">{error}</p>
+            <button 
+              onClick={onClose}
+              className="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors"
+            >
+              Fechar
+            </button>
+          </div>
+        </div>
+      )}
+
       <video
         ref={videoRef}
         poster={poster}
