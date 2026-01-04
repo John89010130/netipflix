@@ -9,10 +9,14 @@ import {
   Minimize,
   SkipBack,
   SkipForward,
-  X
+  X,
+  Copy,
+  Check,
+  Link
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-
+import { useAuth } from '@/contexts/AuthContext';
+import { toast } from 'sonner';
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 
 // Convert HTTP URLs to use our HTTPS proxy
@@ -44,9 +48,23 @@ export const VideoPlayer = ({ src, title, poster, onClose, autoPlay = true }: Vi
   const [currentTime, setCurrentTime] = useState(0);
   const [showControls, setShowControls] = useState(true);
   const [volume, setVolume] = useState(1);
-
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [showStreamUrl, setShowStreamUrl] = useState(false);
+  const [copied, setCopied] = useState(false);
+  
+  const { isAdmin } = useAuth();
+
+  const copyStreamUrl = async () => {
+    try {
+      await navigator.clipboard.writeText(src);
+      setCopied(true);
+      toast.success('Link copiado!');
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      toast.error('Erro ao copiar');
+    }
+  };
 
   useEffect(() => {
     const video = videoRef.current;
@@ -258,9 +276,39 @@ export const VideoPlayer = ({ src, title, poster, onClose, autoPlay = true }: Vi
             <button onClick={onClose} className="p-2 hover:bg-secondary/50 rounded-full transition-colors">
               <X className="h-6 w-6" />
             </button>
-            {title && <h2 className="font-display text-xl tracking-wide">{title}</h2>}
+            <div className="flex items-center gap-4">
+              {title && <h2 className="font-display text-xl tracking-wide">{title}</h2>}
+              {isAdmin && (
+                <button 
+                  onClick={() => setShowStreamUrl(!showStreamUrl)}
+                  className={cn(
+                    "p-2 rounded-full transition-colors",
+                    showStreamUrl ? "bg-primary text-primary-foreground" : "hover:bg-secondary/50"
+                  )}
+                  title="Ver link do stream"
+                >
+                  <Link className="h-5 w-5" />
+                </button>
+              )}
+            </div>
             <div className="w-10" />
           </div>
+          
+          {/* Stream URL for admins */}
+          {isAdmin && showStreamUrl && (
+            <div className="mt-3 flex items-center gap-2 bg-secondary/80 backdrop-blur-sm rounded-lg p-3">
+              <code className="flex-1 text-sm text-foreground break-all font-mono">
+                {src}
+              </code>
+              <button
+                onClick={copyStreamUrl}
+                className="p-2 hover:bg-background/50 rounded-md transition-colors shrink-0"
+                title="Copiar link"
+              >
+                {copied ? <Check className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4" />}
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Center Play Button */}
