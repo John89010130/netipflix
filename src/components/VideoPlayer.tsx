@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import Hls from 'hls.js';
 import { 
   Play, 
@@ -12,21 +12,116 @@ import {
   X,
   Copy,
   Check,
-  Link
+  Link,
+  AlertTriangle
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'sonner';
+
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
+
+type StreamType = 'hls' | 'mpegts' | 'mp4' | 'flv' | 'unknown';
+
+interface ProbeResult {
+  type: StreamType;
+  contentType?: string;
+}
+
+// Probe the stream to detect its type
+const probeStream = async (url: string, signal: AbortSignal): Promise<ProbeResult> => {
+  try {
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'Range': 'bytes=0-8191',
+        'Accept': '*/*',
+      },
+      signal,
+    });
+
+    if (!response.ok) {
+      return { type: 'unknown' };
+    }
+
+    const contentType = response.headers.get('content-type') || '';
+    
+    // Check content-type first
+    if (/mpegurl/i.test(contentType) || /x-mpegurl/i.test(contentType)) {
+      return { type: 'hls', contentType };
+    }
+    if (/video\/mp2t/i.test(contentType) || /video\/mpeg/i.test(contentType)) {
+      return { type: 'mpegts', contentType };
+    }
+    if (/video\/mp4/i.test(contentType) || /video\/webm/i.test(contentType) || /video\/ogg/i.test(contentType)) {
+      return { type: 'mp4', contentType };
+    }
+
+    // Read first bytes for magic number detection
+    const buffer = await response.arrayBuffer();
+    const bytes = new Uint8Array(buffer);
+    
+    if (bytes.length === 0) {
+      return { type: 'unknown', contentType };
+    }
+
+    // Check for HLS playlist (text-based)
+    const text = new TextDecoder().decode(bytes.slice(0, 512));
+    if (text.trimStart().startsWith('#EXTM3U') || text.includes('#EXT-X-')) {
+      return { type: 'hls', contentType };
+    }
+
+    // Check for MPEG-TS sync byte (0x47) - check multiple positions
+    // TS packets are 188 bytes, sync byte should appear at 0, 188, 376, etc.
+    if (bytes[0] === 0x47) {
+      // Check if it's consistently a TS stream
+      if (bytes.length >= 188 && bytes[188] === 0x47) {
+        return { type: 'mpegts', contentType };
+      }
+      // Single sync byte might still be TS
+      if (bytes.length < 188) {
+        return { type: 'mpegts', contentType };
+      }
+    }
+
+    // Check for FLV header "FLV"
+    if (bytes[0] === 0x46 && bytes[1] === 0x4C && bytes[2] === 0x56) {
+      return { type: 'flv', contentType };
+    }
+
+    // Check for MP4/ftyp box
+    if (bytes.length >= 8) {
+      const ftypStr = String.fromCharCode(bytes[4], bytes[5], bytes[6], bytes[7]);
+      if (ftypStr === 'ftyp') {
+        return { type: 'mp4', contentType };
+      }
+    }
+
+    // For live streams, often they're MPEG-TS even without clear markers
+    // If content-type is octet-stream and no other detection, assume TS for live streams
+    if (contentType.includes('octet-stream') || !contentType) {
+      // Look for any 0x47 sync bytes in the buffer
+      for (let i = 0; i < Math.min(bytes.length, 1000); i++) {
+        if (bytes[i] === 0x47 && bytes[i + 188] === 0x47) {
+          return { type: 'mpegts', contentType };
+        }
+      }
+    }
+
+    return { type: 'unknown', contentType };
+  } catch (err) {
+    console.error('Stream probe error:', err);
+    return { type: 'unknown' };
+  }
+};
 
 // Use proxy for all stream URLs to avoid CORS issues
 const getProxiedUrl = (url: string): string => {
-  // Only proxy HTTP/HTTPS URLs
   if (!url.startsWith('http://') && !url.startsWith('https://')) {
     return url;
   }
   
-  // Check if URL is already proxied (to avoid double-proxying)
+  // Check if URL is already proxied
   if (
     url.includes('/functions/v1/stream-proxy') ||
     url.includes('.supabase.co/stream-proxy') ||
@@ -35,8 +130,21 @@ const getProxiedUrl = (url: string): string => {
     return url;
   }
   
-  // Use our edge function proxy for all external streams
   return `${SUPABASE_URL}/functions/v1/stream-proxy?url=${encodeURIComponent(url)}`;
+};
+
+// Extract underlying URL from proxied URL
+const getUnderlyingUrl = (maybeProxied: string): string => {
+  try {
+    const parsed = new URL(maybeProxied);
+    if (parsed.pathname.includes('/functions/v1/stream-proxy')) {
+      const u = parsed.searchParams.get('url');
+      if (u) return decodeURIComponent(u);
+    }
+  } catch {
+    // ignore
+  }
+  return maybeProxied;
 };
 
 interface VideoPlayerProps {
@@ -50,6 +158,9 @@ interface VideoPlayerProps {
 export const VideoPlayer = ({ src, title, poster, onClose, autoPlay = true }: VideoPlayerProps) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const hlsRef = useRef<Hls | null>(null);
+  const mpegtsPlayerRef = useRef<any>(null);
+  
   const [isPlaying, setIsPlaying] = useState(autoPlay);
   const [isMuted, setIsMuted] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -63,11 +174,10 @@ export const VideoPlayer = ({ src, title, poster, onClose, autoPlay = true }: Vi
   const [showStreamUrl, setShowStreamUrl] = useState(false);
   const [copied, setCopied] = useState(false);
   const [copiedProxied, setCopiedProxied] = useState(false);
-  const [fragmentErrors, setFragmentErrors] = useState(0);
+  const [streamInfo, setStreamInfo] = useState<{ type: StreamType; contentType?: string } | null>(null);
   
   const { isAdmin } = useAuth();
   
-  // Get the proxied URL for display
   const proxiedUrl = getProxiedUrl(src);
 
   const copyStreamUrl = async () => {
@@ -92,108 +202,259 @@ export const VideoPlayer = ({ src, title, poster, onClose, autoPlay = true }: Vi
     }
   };
 
+  const cleanup = useCallback(() => {
+    if (hlsRef.current) {
+      hlsRef.current.destroy();
+      hlsRef.current = null;
+    }
+    if (mpegtsPlayerRef.current) {
+      try {
+        mpegtsPlayerRef.current.pause();
+        mpegtsPlayerRef.current.unload();
+        mpegtsPlayerRef.current.detachMediaElement();
+        mpegtsPlayerRef.current.destroy();
+      } catch (e) {
+        console.error('Error cleaning up mpegts player:', e);
+      }
+      mpegtsPlayerRef.current = null;
+    }
+    const video = videoRef.current;
+    if (video) {
+      video.pause();
+      video.removeAttribute('src');
+      video.load();
+    }
+  }, []);
+
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
 
+    const abortController = new AbortController();
+    
     setError(null);
     setIsLoading(true);
+    setStreamInfo(null);
+    cleanup();
 
     const streamUrl = getProxiedUrl(src);
-
-    const getUnderlyingUrl = (maybeProxied: string) => {
-      try {
-        const parsed = new URL(maybeProxied);
-        if (parsed.pathname.includes('/functions/v1/stream-proxy')) {
-          const u = parsed.searchParams.get('url');
-          if (u) return decodeURIComponent(u);
-        }
-      } catch {
-        // ignore
-      }
-      return maybeProxied;
-    };
-
     const underlyingUrl = getUnderlyingUrl(streamUrl);
+    
+    // Quick check for obvious file types
     const looksLikeHls = /\.m3u8(\?|$)/i.test(underlyingUrl);
-    const looksLikeDirectFile = /\.(mp4|webm|ogg|mov|mkv|avi|mpd)(\?|$)/i.test(underlyingUrl);
+    const looksLikeDirectFile = /\.(mp4|webm|ogg|mov)(\?|$)/i.test(underlyingUrl);
 
-    // When we are proxying an URL that doesn't look like a direct file, try HLS first.
-    // This covers many IPTV endpoints that serve an HLS playlist without a .m3u8 suffix.
-    const shouldTryHls =
-      Hls.isSupported() &&
-      (looksLikeHls || (streamUrl.includes('/functions/v1/stream-proxy') && !looksLikeDirectFile));
-
-    const setNativeSource = () => {
-      video.src = streamUrl;
-
-      const onLoaded = () => setIsLoading(false);
-      const onErr = () => {
-        setIsLoading(false);
-        setError(
-          'Não foi possível reproduzir este stream no navegador. Alguns links funcionam no VLC, mas não são compatíveis com players web.'
-        );
-      };
-
-      video.addEventListener('loadeddata', onLoaded, { once: true });
-      video.addEventListener('error', onErr, { once: true });
-
-      if (autoPlay) video.play().catch(() => setIsPlaying(false));
-    };
-
-    if (shouldTryHls) {
-      const hls = new Hls({
-        enableWorker: true,
-        lowLatencyMode: false,
-        xhrSetup: (xhr) => {
-          xhr.timeout = 30000;
-        },
-      });
-
-      hls.loadSource(streamUrl);
-      hls.attachMedia(video);
-
-      hls.on(Hls.Events.MANIFEST_PARSED, () => {
-        setIsLoading(false);
-        if (autoPlay) video.play().catch(() => setIsPlaying(false));
-      });
-
-      hls.on(Hls.Events.ERROR, (_event, data) => {
-        console.error('HLS Error:', data);
-
-        // Track fragment load errors
-        if (data.details === 'fragLoadError') {
-          setFragmentErrors((prev) => {
-            const newCount = prev + 1;
-            if (newCount === 3) {
-              toast.warning('Dificuldade ao carregar segmentos do stream...');
-            }
-            return newCount;
-          });
+    const initPlayer = async () => {
+      try {
+        // If it obviously looks like an MP4/WebM, skip probing
+        if (looksLikeDirectFile) {
+          console.log('Direct file detected, using native playback');
+          setStreamInfo({ type: 'mp4' });
+          video.src = streamUrl;
+          setIsLoading(false);
+          if (autoPlay) video.play().catch(() => setIsPlaying(false));
+          return;
         }
 
-        if (!data.fatal) return;
+        // If it obviously looks like HLS
+        if (looksLikeHls) {
+          console.log('HLS URL detected by extension');
+          setStreamInfo({ type: 'hls' });
+          await initHls(streamUrl, video);
+          return;
+        }
 
-        // If HLS fails fatally, try native playback as a fallback.
-        // This helps when the URL is an MP4/file but got routed through the HLS path.
-        hls.destroy();
-        setNativeSource();
-      });
+        // Probe the stream to detect type
+        console.log('Probing stream type for:', underlyingUrl);
+        const probeResult = await probeStream(streamUrl, abortController.signal);
+        console.log('Probe result:', probeResult);
+        setStreamInfo(probeResult);
 
-      return () => {
-        hls.destroy();
-      };
-    }
+        switch (probeResult.type) {
+          case 'hls':
+            await initHls(streamUrl, video);
+            break;
+          case 'mpegts':
+          case 'flv':
+            await initMpegts(streamUrl, video, probeResult.type);
+            break;
+          case 'mp4':
+            video.src = streamUrl;
+            setIsLoading(false);
+            if (autoPlay) video.play().catch(() => setIsPlaying(false));
+            break;
+          default:
+            // Try mpegts first for unknown streams (common for IPTV)
+            console.log('Unknown stream type, trying mpegts.js first');
+            try {
+              await initMpegts(streamUrl, video, 'mpegts');
+            } catch (mpegtsError) {
+              console.log('mpegts.js failed, falling back to native');
+              cleanup();
+              video.src = streamUrl;
+              setIsLoading(false);
+              if (autoPlay) video.play().catch(() => setIsPlaying(false));
+            }
+        }
+      } catch (err) {
+        if (abortController.signal.aborted) return;
+        console.error('Player init error:', err);
+        setError('Erro ao inicializar o player. Tente novamente.');
+        setIsLoading(false);
+      }
+    };
 
-    // Native HLS (Safari). Only attempt when it looks like an HLS playlist.
-    if (looksLikeHls && video.canPlayType('application/vnd.apple.mpegurl')) {
-      setNativeSource();
-      return;
-    }
+    const initHls = async (url: string, videoEl: HTMLVideoElement) => {
+      if (Hls.isSupported()) {
+        const hls = new Hls({
+          enableWorker: true,
+          lowLatencyMode: false,
+          fragLoadingMaxRetry: 3,
+          manifestLoadingMaxRetry: 3,
+          levelLoadingMaxRetry: 3,
+          xhrSetup: (xhr) => {
+            xhr.timeout = 15000;
+          },
+        });
+        
+        hlsRef.current = hls;
+        hls.loadSource(url);
+        hls.attachMedia(videoEl);
 
-    // Non-HLS: try native playback.
-    setNativeSource();
-  }, [src, autoPlay]);
+        hls.on(Hls.Events.MANIFEST_PARSED, () => {
+          setIsLoading(false);
+          if (autoPlay) videoEl.play().catch(() => setIsPlaying(false));
+        });
+
+        hls.on(Hls.Events.ERROR, (_event, data) => {
+          console.error('HLS Error:', data);
+          
+          if (!data.fatal) return;
+
+          if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+            if (data.details === Hls.ErrorDetails.MANIFEST_LOAD_TIMEOUT || 
+                data.details === Hls.ErrorDetails.MANIFEST_LOAD_ERROR) {
+              console.log('HLS manifest load failed, trying mpegts.js');
+              hls.destroy();
+              hlsRef.current = null;
+              // This might be an MPEG-TS stream misidentified as HLS
+              initMpegts(url, videoEl, 'mpegts').catch(() => {
+                setError('Não foi possível carregar o stream. O formato pode não ser compatível com o navegador.');
+                setIsLoading(false);
+              });
+              return;
+            }
+          }
+
+          hls.destroy();
+          hlsRef.current = null;
+          setError(`Erro HLS: ${data.details || 'Falha na reprodução'}`);
+          setIsLoading(false);
+        });
+      } else if (videoEl.canPlayType('application/vnd.apple.mpegurl')) {
+        // Safari native HLS
+        videoEl.src = url;
+        videoEl.addEventListener('loadedmetadata', () => {
+          setIsLoading(false);
+          if (autoPlay) videoEl.play().catch(() => setIsPlaying(false));
+        }, { once: true });
+        videoEl.addEventListener('error', () => {
+          setError('Erro ao carregar o stream HLS.');
+          setIsLoading(false);
+        }, { once: true });
+      } else {
+        setError('Seu navegador não suporta reprodução de HLS.');
+        setIsLoading(false);
+      }
+    };
+
+    const initMpegts = async (url: string, videoEl: HTMLVideoElement, type: 'mpegts' | 'flv') => {
+      try {
+        // Dynamic import for mpegts.js
+        const mpegts = await import('mpegts.js');
+        
+        if (!mpegts.default.isSupported()) {
+          throw new Error('mpegts.js não é suportado neste navegador');
+        }
+
+        console.log('Initializing mpegts.js player');
+        
+        const player = mpegts.default.createPlayer({
+          type: type === 'flv' ? 'flv' : 'mpegts',
+          isLive: true,
+          url: url,
+        }, {
+          enableWorker: true,
+          enableStashBuffer: true,
+          stashInitialSize: 128 * 1024,
+          lazyLoad: false,
+          lazyLoadMaxDuration: 0,
+          deferLoadAfterSourceOpen: false,
+          autoCleanupSourceBuffer: true,
+          autoCleanupMaxBackwardDuration: 30,
+          autoCleanupMinBackwardDuration: 10,
+        });
+
+        mpegtsPlayerRef.current = player;
+        player.attachMediaElement(videoEl);
+        player.load();
+
+        player.on(mpegts.default.Events.ERROR, (errorType: string, errorDetail: string, errorInfo: any) => {
+          console.error('mpegts.js error:', errorType, errorDetail, errorInfo);
+          
+          // Check if it's a codec error
+          if (errorInfo?.msg?.includes('codec') || errorDetail?.includes('codec')) {
+            setError(`Codec não suportado pelo navegador. Este stream pode usar H.265/HEVC que não é suportado no Chrome.`);
+          } else {
+            setError(`Erro de reprodução: ${errorDetail || errorType}`);
+          }
+          setIsLoading(false);
+        });
+
+        player.on(mpegts.default.Events.LOADING_COMPLETE, () => {
+          console.log('mpegts.js loading complete');
+        });
+
+        player.on(mpegts.default.Events.MEDIA_INFO, (info: any) => {
+          console.log('mpegts.js media info:', info);
+          setIsLoading(false);
+        });
+
+        // Try to play
+        const playPromise = videoEl.play();
+        if (playPromise !== undefined) {
+          playPromise
+            .then(() => {
+              setIsLoading(false);
+              setIsPlaying(true);
+            })
+            .catch((err) => {
+              console.error('Autoplay failed:', err);
+              setIsPlaying(false);
+              setIsLoading(false);
+            });
+        }
+
+        // Set a timeout for loading
+        setTimeout(() => {
+          if (isLoading && !error) {
+            setIsLoading(false);
+          }
+        }, 5000);
+
+      } catch (err) {
+        console.error('mpegts.js init error:', err);
+        throw err;
+      }
+    };
+
+    initPlayer();
+
+    return () => {
+      abortController.abort();
+      cleanup();
+    };
+  }, [src, autoPlay, cleanup]);
 
   useEffect(() => {
     let timeout: NodeJS.Timeout;
@@ -277,6 +538,7 @@ export const VideoPlayer = ({ src, title, poster, onClose, autoPlay = true }: Vi
   };
 
   const formatTime = (time: number) => {
+    if (!isFinite(time) || isNaN(time)) return '--:--';
     const hours = Math.floor(time / 3600);
     const minutes = Math.floor((time % 3600) / 60);
     const secs = Math.floor(time % 60);
@@ -287,6 +549,16 @@ export const VideoPlayer = ({ src, title, poster, onClose, autoPlay = true }: Vi
     return `${minutes}:${secs.toString().padStart(2, '0')}`;
   };
 
+  const getStreamTypeLabel = (type: StreamType): string => {
+    switch (type) {
+      case 'hls': return 'HLS';
+      case 'mpegts': return 'MPEG-TS';
+      case 'mp4': return 'MP4/WebM';
+      case 'flv': return 'FLV';
+      default: return 'Desconhecido';
+    }
+  };
+
   return (
     <div
       ref={containerRef}
@@ -294,8 +566,9 @@ export const VideoPlayer = ({ src, title, poster, onClose, autoPlay = true }: Vi
     >
       {/* Loading Spinner */}
       {isLoading && !error && (
-        <div className="absolute inset-0 flex items-center justify-center z-10">
+        <div className="absolute inset-0 flex flex-col items-center justify-center z-10">
           <div className="h-12 w-12 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+          <p className="mt-4 text-muted-foreground">Detectando tipo de stream...</p>
         </div>
       )}
 
@@ -303,7 +576,19 @@ export const VideoPlayer = ({ src, title, poster, onClose, autoPlay = true }: Vi
       {error && (
         <div className="absolute inset-0 flex flex-col items-center justify-center z-10 p-8">
           <div className="bg-destructive/20 border border-destructive/50 rounded-lg p-6 max-w-lg text-center">
+            <AlertTriangle className="h-10 w-10 text-destructive mx-auto mb-4" />
             <p className="text-destructive-foreground mb-4">{error}</p>
+            
+            {/* Diagnostic info for admins */}
+            {isAdmin && streamInfo && (
+              <div className="mb-4 p-3 bg-secondary/50 rounded-lg text-left">
+                <p className="text-xs text-muted-foreground mb-1">Diagnóstico:</p>
+                <p className="text-sm">Tipo detectado: <strong>{getStreamTypeLabel(streamInfo.type)}</strong></p>
+                {streamInfo.contentType && (
+                  <p className="text-sm">Content-Type: <code className="text-xs">{streamInfo.contentType}</code></p>
+                )}
+              </div>
+            )}
             
             {/* Stream URLs for admins in error state */}
             {isAdmin && (
@@ -358,6 +643,7 @@ export const VideoPlayer = ({ src, title, poster, onClose, autoPlay = true }: Vi
         onLoadedMetadata={handleLoadedMetadata}
         onClick={togglePlay}
         className="h-full w-full object-contain"
+        playsInline
       />
 
       {/* Controls Overlay */}
@@ -375,6 +661,11 @@ export const VideoPlayer = ({ src, title, poster, onClose, autoPlay = true }: Vi
             </button>
             <div className="flex items-center gap-4">
               {title && <h2 className="font-display text-xl tracking-wide">{title}</h2>}
+              {streamInfo && (
+                <span className="text-xs px-2 py-1 bg-secondary/50 rounded-full text-muted-foreground">
+                  {getStreamTypeLabel(streamInfo.type)}
+                </span>
+              )}
               {isAdmin && (
                 <button 
                   onClick={() => setShowStreamUrl(!showStreamUrl)}
@@ -409,7 +700,7 @@ export const VideoPlayer = ({ src, title, poster, onClose, autoPlay = true }: Vi
         </div>
 
         {/* Center Play Button */}
-        {!isPlaying && (
+        {!isPlaying && !isLoading && !error && (
           <button
             onClick={togglePlay}
             className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 h-20 w-20 rounded-full bg-primary/90 flex items-center justify-center transition-transform hover:scale-110"
