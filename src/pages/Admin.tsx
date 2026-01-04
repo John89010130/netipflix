@@ -55,6 +55,7 @@ const Admin = () => {
   const [m3uContent, setM3uContent] = useState('');
   const [importing, setImporting] = useState(false);
   const [testing, setTesting] = useState(false);
+  const [testProgress, setTestProgress] = useState({ current: 0, total: 0, online: 0, offline: 0 });
   const [testResults, setTestResults] = useState<Map<string, StreamTestResult>>(new Map());
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [searchTerm, setSearchTerm] = useState('');
@@ -194,25 +195,50 @@ const Admin = () => {
     setTestResults(new Map());
     
     const urls = channelsToTest.map(c => c.stream_url);
+    const batchSize = 10; // Test in smaller batches for progress updates
+    const totalBatches = Math.ceil(urls.length / batchSize);
+    
+    setTestProgress({ current: 0, total: urls.length, online: 0, offline: 0 });
+    
+    const allResults = new Map<string, StreamTestResult>();
+    let onlineCount = 0;
+    let offlineCount = 0;
     
     try {
-      const response = await fetch(`${SUPABASE_URL}/functions/v1/test-stream`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ urls }),
-      });
-
-      const data = await response.json();
-      
-      if (data.results) {
-        const resultsMap = new Map<string, StreamTestResult>();
-        data.results.forEach((result: StreamTestResult) => {
-          resultsMap.set(result.url, result);
-        });
-        setTestResults(resultsMap);
+      for (let i = 0; i < urls.length; i += batchSize) {
+        const batch = urls.slice(i, i + batchSize);
+        const batchNumber = Math.floor(i / batchSize) + 1;
         
-        toast.success(`Teste concluído: ${data.summary.online} online, ${data.summary.offline} offline`);
+        const response = await fetch(`${SUPABASE_URL}/functions/v1/test-stream`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ urls: batch }),
+        });
+
+        const data = await response.json();
+        
+        if (data.results) {
+          data.results.forEach((result: StreamTestResult) => {
+            allResults.set(result.url, result);
+            if (result.status === 'online') {
+              onlineCount++;
+            } else {
+              offlineCount++;
+            }
+          });
+          
+          // Update state with progressive results
+          setTestResults(new Map(allResults));
+          setTestProgress({
+            current: Math.min(i + batchSize, urls.length),
+            total: urls.length,
+            online: onlineCount,
+            offline: offlineCount
+          });
+        }
       }
+      
+      toast.success(`Teste concluído: ${onlineCount} online, ${offlineCount} offline`);
     } catch (error) {
       console.error('Test error:', error);
       toast.error('Erro ao testar streams');
@@ -413,6 +439,34 @@ const Admin = () => {
                       )}
                     </div>
                   </div>
+
+                  {/* Progress Bar */}
+                  {testing && (
+                    <div className="space-y-2 p-4 rounded-lg bg-secondary/30 border border-border">
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="font-medium">Testando streams...</span>
+                        <span className="text-muted-foreground">
+                          {testProgress.current} / {testProgress.total}
+                        </span>
+                      </div>
+                      <div className="w-full h-3 bg-secondary rounded-full overflow-hidden">
+                        <div 
+                          className="h-full bg-primary transition-all duration-300 ease-out"
+                          style={{ width: `${testProgress.total > 0 ? (testProgress.current / testProgress.total) * 100 : 0}%` }}
+                        />
+                      </div>
+                      <div className="flex gap-4 text-sm">
+                        <span className="flex items-center gap-1">
+                          <CheckCircle className="h-4 w-4 text-green-500" />
+                          {testProgress.online} online
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <XCircle className="h-4 w-4 text-red-500" />
+                          {testProgress.offline} offline
+                        </span>
+                      </div>
+                    </div>
+                  )}
 
                   {/* Channels List */}
                   <div className="max-h-[600px] overflow-y-auto space-y-2">
