@@ -52,15 +52,31 @@ export const VideoPlayer = ({ src, title, poster, onClose, autoPlay = true }: Vi
   const [isLoading, setIsLoading] = useState(true);
   const [showStreamUrl, setShowStreamUrl] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [copiedProxied, setCopiedProxied] = useState(false);
+  const [fragmentErrors, setFragmentErrors] = useState(0);
   
   const { isAdmin } = useAuth();
+  
+  // Get the proxied URL for display
+  const proxiedUrl = getProxiedUrl(src);
 
   const copyStreamUrl = async () => {
     try {
       await navigator.clipboard.writeText(src);
       setCopied(true);
-      toast.success('Link copiado!');
+      toast.success('Link original copiado!');
       setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      toast.error('Erro ao copiar');
+    }
+  };
+
+  const copyProxiedUrl = async () => {
+    try {
+      await navigator.clipboard.writeText(proxiedUrl);
+      setCopiedProxied(true);
+      toast.success('Link proxied copiado!');
+      setTimeout(() => setCopiedProxied(false), 2000);
     } catch (err) {
       toast.error('Erro ao copiar');
     }
@@ -95,11 +111,28 @@ export const VideoPlayer = ({ src, title, poster, onClose, autoPlay = true }: Vi
       
       hls.on(Hls.Events.ERROR, (event, data) => {
         console.error('HLS Error:', data);
+        
+        // Track fragment load errors
+        if (data.details === 'fragLoadError') {
+          setFragmentErrors(prev => {
+            const newCount = prev + 1;
+            // After 3 fragment errors, show a warning
+            if (newCount === 3) {
+              toast.warning('Dificuldade ao carregar segmentos do stream...');
+            }
+            return newCount;
+          });
+        }
+        
         if (data.fatal) {
           setIsLoading(false);
           switch (data.type) {
             case Hls.ErrorTypes.NETWORK_ERROR:
-              setError('Erro de rede ao carregar o stream. O servidor pode estar offline ou inacessível.');
+              if (data.details === 'fragLoadError') {
+                setError('Não foi possível carregar os segmentos do stream. O servidor pode estar bloqueando o acesso ou o stream está offline.');
+              } else {
+                setError('Erro de rede ao carregar o stream. O servidor pode estar offline ou inacessível.');
+              }
               break;
             case Hls.ErrorTypes.MEDIA_ERROR:
               setError('Erro de mídia. O formato do stream pode não ser compatível.');
@@ -242,22 +275,42 @@ export const VideoPlayer = ({ src, title, poster, onClose, autoPlay = true }: Vi
       {/* Error Message */}
       {error && (
         <div className="absolute inset-0 flex flex-col items-center justify-center z-10 p-8">
-          <div className="bg-destructive/20 border border-destructive/50 rounded-lg p-6 max-w-md text-center">
+          <div className="bg-destructive/20 border border-destructive/50 rounded-lg p-6 max-w-lg text-center">
             <p className="text-destructive-foreground mb-4">{error}</p>
             
-            {/* Stream URL for admins in error state */}
+            {/* Stream URLs for admins in error state */}
             {isAdmin && (
-              <div className="mb-4 flex items-center gap-2 bg-secondary/80 backdrop-blur-sm rounded-lg p-3 text-left">
-                <code className="flex-1 text-xs text-foreground break-all font-mono">
-                  {src}
-                </code>
-                <button
-                  onClick={copyStreamUrl}
-                  className="p-2 hover:bg-background/50 rounded-md transition-colors shrink-0"
-                  title="Copiar link"
-                >
-                  {copied ? <Check className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4" />}
-                </button>
+              <div className="mb-4 space-y-2 text-left">
+                <div className="flex items-center gap-2 bg-secondary/80 backdrop-blur-sm rounded-lg p-3">
+                  <div className="flex-1 min-w-0">
+                    <span className="text-xs text-muted-foreground block mb-1">Link Original:</span>
+                    <code className="text-xs text-foreground break-all font-mono block">
+                      {src}
+                    </code>
+                  </div>
+                  <button
+                    onClick={copyStreamUrl}
+                    className="p-2 hover:bg-background/50 rounded-md transition-colors shrink-0"
+                    title="Copiar link original"
+                  >
+                    {copied ? <Check className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4" />}
+                  </button>
+                </div>
+                <div className="flex items-center gap-2 bg-secondary/80 backdrop-blur-sm rounded-lg p-3">
+                  <div className="flex-1 min-w-0">
+                    <span className="text-xs text-muted-foreground block mb-1">Link Proxied:</span>
+                    <code className="text-xs text-foreground break-all font-mono block">
+                      {proxiedUrl}
+                    </code>
+                  </div>
+                  <button
+                    onClick={copyProxiedUrl}
+                    className="p-2 hover:bg-background/50 rounded-md transition-colors shrink-0"
+                    title="Copiar link proxied"
+                  >
+                    {copiedProxied ? <Check className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4" />}
+                  </button>
+                </div>
               </div>
             )}
             

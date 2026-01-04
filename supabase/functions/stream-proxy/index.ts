@@ -4,7 +4,7 @@ const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, range',
   'Access-Control-Allow-Methods': 'GET, OPTIONS',
-  'Access-Control-Expose-Headers': 'Content-Length, Content-Range, Content-Type',
+  'Access-Control-Expose-Headers': 'Content-Length, Content-Range, Content-Type, Accept-Ranges',
 };
 
 serve(async (req) => {
@@ -66,38 +66,43 @@ serve(async (req) => {
       const text = await response.text();
       const baseUrl = decodedUrl.substring(0, decodedUrl.lastIndexOf('/') + 1);
       
-      // Use HTTPS for the proxy URL to avoid mixed content issues
+      // CRITICAL FIX: Use the full path including /functions/v1/ 
+      // The url.pathname only contains '/stream-proxy', not the full edge function path
+      // We need to use the correct public endpoint path
       const proxyOrigin = url.origin.replace('http://', 'https://');
-      const proxyBaseUrl = `${proxyOrigin}${url.pathname}?url=`;
+      const proxyBaseUrl = `${proxyOrigin}/functions/v1/stream-proxy?url=`;
+      
+      console.log('Rewriting m3u8 playlist, proxy base URL:', proxyBaseUrl);
       
       // Rewrite relative URLs in the playlist to go through our proxy
       const rewrittenText = text.split('\n').map(line => {
         const trimmedLine = line.trim();
         
-        // Skip empty lines and comments (except URI in EXT-X-KEY)
-        if (!trimmedLine || (trimmedLine.startsWith('#') && !trimmedLine.includes('URI="'))) {
-          // Handle EXT-X-KEY with URI
-          if (trimmedLine.includes('URI="')) {
-            return trimmedLine.replace(/URI="([^"]+)"/, (match, uri) => {
-              if (uri.startsWith('http://') || uri.startsWith('https://')) {
-                return `URI="${proxyBaseUrl}${encodeURIComponent(uri)}"`;
-              }
-              return `URI="${proxyBaseUrl}${encodeURIComponent(baseUrl + uri)}"`;
-            });
-          }
+        // Handle EXT-X-KEY with URI (encryption keys)
+        if (trimmedLine.includes('URI="')) {
+          return trimmedLine.replace(/URI="([^"]+)"/g, (_match, uri) => {
+            if (uri.startsWith('http://') || uri.startsWith('https://')) {
+              return `URI="${proxyBaseUrl}${encodeURIComponent(uri)}"`;
+            }
+            return `URI="${proxyBaseUrl}${encodeURIComponent(baseUrl + uri)}"`;
+          });
+        }
+        
+        // Skip empty lines and comment lines
+        if (!trimmedLine || trimmedLine.startsWith('#')) {
           return line;
         }
         
-        // If it's a URL (relative or absolute)
+        // If it's an absolute URL
         if (trimmedLine.startsWith('http://') || trimmedLine.startsWith('https://')) {
           return proxyBaseUrl + encodeURIComponent(trimmedLine);
-        } else if (!trimmedLine.startsWith('#')) {
-          // Relative URL - make it absolute and proxy it
-          return proxyBaseUrl + encodeURIComponent(baseUrl + trimmedLine);
         }
         
-        return line;
+        // Relative URL - make it absolute and proxy it
+        return proxyBaseUrl + encodeURIComponent(baseUrl + trimmedLine);
       }).join('\n');
+
+      console.log('Rewritten playlist (first 500 chars):', rewrittenText.substring(0, 500));
 
       return new Response(rewrittenText, {
         status: response.status,
@@ -123,6 +128,11 @@ serve(async (req) => {
     const contentRange = response.headers.get('content-range');
     if (contentRange) {
       responseHeaders['Content-Range'] = contentRange;
+    }
+
+    const acceptRanges = response.headers.get('accept-ranges');
+    if (acceptRanges) {
+      responseHeaders['Accept-Ranges'] = acceptRanges;
     }
 
     return new Response(response.body, {
