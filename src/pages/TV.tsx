@@ -7,7 +7,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Loader2, Search, X, Grid, List } from 'lucide-react';
 import { Input } from '@/components/ui/input';
-import { useChannelGroups, Channel } from '@/hooks/useChannelGroups';
+import { useChannelGroups, Channel, cleanDisplayName } from '@/hooks/useChannelGroups';
 import { Button } from '@/components/ui/button';
 import { ChannelCard } from '@/components/ChannelCard';
 
@@ -89,11 +89,12 @@ const TV = () => {
 
     const from = reset ? 0 : currentLength;
 
+    // Fetch BR channels first by using a raw SQL ordering approach
+    // We'll fetch all and sort client-side for proper BR: priority
     let query = supabase
       .from('channels')
       .select('*')
       .eq('active', true)
-      .order('name')
       .range(from, from + PAGE_SIZE - 1);
 
     if (selectedCategory !== 'Todos' && selectedCategory !== '🔞 Adulto') {
@@ -122,6 +123,15 @@ const TV = () => {
       } else if (selectedCategory === '🔞 Adulto') {
         filteredData = filteredData.filter(c => isAdultCategory(c.category));
       }
+
+      // Sort: BR channels first, then alphabetically by cleaned name
+      filteredData.sort((a, b) => {
+        const aIsBR = a.name.toUpperCase().startsWith('BR:');
+        const bIsBR = b.name.toUpperCase().startsWith('BR:');
+        if (aIsBR && !bIsBR) return -1;
+        if (!aIsBR && bIsBR) return 1;
+        return cleanDisplayName(a.name).localeCompare(cleanDisplayName(b.name));
+      });
 
       if (reset) {
         setChannels(filteredData);

@@ -1,6 +1,7 @@
 import { Play, Tv } from 'lucide-react';
 import { Channel } from '@/types';
 import { cn } from '@/lib/utils';
+import { cleanDisplayName } from '@/hooks/useChannelGroups';
 
 interface ChannelCardProps {
   channel: Channel;
@@ -44,7 +45,7 @@ export const ChannelCard = ({ channel, onPlay }: ChannelCardProps) => {
 
       {/* Channel Info */}
       <div className="mt-2 px-1">
-        <h3 className="font-medium text-sm truncate">{channel.name}</h3>
+        <h3 className="font-medium text-sm truncate">{cleanDisplayName(channel.name)}</h3>
         <p className="text-xs text-muted-foreground">{channel.category}</p>
       </div>
     </div>

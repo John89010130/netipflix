@@ -19,6 +19,13 @@ export interface ChannelGroup {
   isExpanded?: boolean;
 }
 
+// Clean display name (remove country prefixes like "BR:", "PT:", etc.)
+export const cleanDisplayName = (name: string): string => {
+  return name
+    .replace(/^(BR:|PT:|US:|UK:|AR:|MX:|CO:|CL:|PE:|VE:|EC:|BO:|PY:|UY:|CR:|PA:|DO:|GT:|HN:|SV:|NI:|CU:|PR:)\s*/gi, '')
+    .trim();
+};
+
 // Extract base name from channel name (remove prefixes, quality suffixes, location)
 const extractBaseName = (name: string): string => {
   let baseName = name
