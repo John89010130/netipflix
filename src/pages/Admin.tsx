@@ -84,6 +84,8 @@ const Admin = () => {
   const [usedM3uLinks, setUsedM3uLinks] = useState<M3uLink[]>([]);
   const [loadingLinks, setLoadingLinks] = useState(true);
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('active'); // Default to active
+  const [allCategories, setAllCategories] = useState<string[]>([]);
+  const [selectedDeleteCategory, setSelectedDeleteCategory] = useState<string>('');
   const listRef = useRef<HTMLDivElement>(null);
   const PAGE_SIZE = 100;
 
@@ -134,11 +136,24 @@ const Admin = () => {
     });
   };
 
+  const fetchAllCategories = async () => {
+    const { data, error } = await supabase
+      .from('channels')
+      .select('category')
+      .order('category');
+    
+    if (!error && data) {
+      const uniqueCategories = [...new Set(data.map(c => c.category))].sort();
+      setAllCategories(uniqueCategories);
+    }
+  };
+
   useEffect(() => {
     if (isAdmin) {
       fetchChannelCounts();
       fetchChannels(true);
       fetchM3uLinks();
+      fetchAllCategories();
     }
   }, [isAdmin]);
 
@@ -608,9 +623,56 @@ const Admin = () => {
       toast.success(`${count || 0} episódios sem título deletados. Reimporte o M3U agora.`);
       fetchChannels(true);
       fetchChannelCounts();
+      fetchAllCategories();
     } catch (error) {
       console.error('Error deleting series:', error);
       toast.error('Erro ao deletar séries sem título');
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  const deleteAndReimportCategory = async (category: string, linkUrl?: string) => {
+    if (!category) {
+      toast.error('Selecione uma categoria');
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Isso vai DELETAR todos os canais da categoria "${category}" e reimportar do link selecionado.\n\n` +
+      `Continuar?`
+    );
+    
+    if (!confirmed) return;
+    
+    setImporting(true);
+    
+    try {
+      // Delete all channels from the category
+      const { error: deleteError, count } = await supabase
+        .from('channels')
+        .delete()
+        .eq('category', category);
+      
+      if (deleteError) throw deleteError;
+      
+      toast.success(`${count || 0} canais da categoria "${category}" deletados.`);
+      
+      // If a link URL was provided, reimport
+      if (linkUrl) {
+        const inserted = await importFromUrl(linkUrl);
+        if (inserted > 0) {
+          toast.success(`${inserted} novos canais importados!`);
+        }
+      }
+      
+      fetchChannels(true);
+      fetchChannelCounts();
+      fetchAllCategories();
+      setSelectedDeleteCategory('');
+    } catch (error) {
+      console.error('Error deleting category:', error);
+      toast.error('Erro ao deletar categoria');
     } finally {
       setImporting(false);
     }
@@ -1038,12 +1100,49 @@ const Admin = () => {
                       </table>
                     </div>
                   )}
-                  <div className="mt-4 p-4 bg-muted/50 rounded-lg space-y-3">
+                  <div className="mt-4 p-4 bg-muted/50 rounded-lg space-y-4">
                     <p className="text-sm text-muted-foreground">
                       <strong>Nota:</strong> Muitas listas M3U públicas têm URLs que expiram rapidamente. 
                       Use o botão "Testar Canais" regularmente para identificar e desativar streams offline.
                     </p>
-                    <div className="pt-2 border-t border-border">
+                    
+                    {/* Delete and Reimport by Category */}
+                    <div className="pt-3 border-t border-border">
+                      <p className="text-sm text-muted-foreground mb-3">
+                        <strong>Deletar e reimportar categoria:</strong> Selecione uma categoria para deletar todos os canais 
+                        e reimportar de um link.
+                      </p>
+                      <div className="flex flex-wrap gap-3 items-end">
+                        <div className="flex-1 min-w-[200px]">
+                          <label className="text-xs text-muted-foreground mb-1 block">Categoria</label>
+                          <select
+                            value={selectedDeleteCategory}
+                            onChange={(e) => setSelectedDeleteCategory(e.target.value)}
+                            className="w-full px-3 py-2 rounded-md border border-input bg-background text-sm"
+                          >
+                            <option value="">Selecione uma categoria...</option>
+                            {allCategories.map(cat => (
+                              <option key={cat} value={cat}>{cat}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <Button
+                          size="sm"
+                          variant="destructive"
+                          disabled={importing || !selectedDeleteCategory}
+                          onClick={() => deleteAndReimportCategory(selectedDeleteCategory)}
+                        >
+                          {importing ? (
+                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                          ) : (
+                            <Trash2 className="h-4 w-4 mr-2" />
+                          )}
+                          Deletar Categoria
+                        </Button>
+                      </div>
+                    </div>
+
+                    <div className="pt-3 border-t border-border">
                       <p className="text-sm text-muted-foreground mb-2">
                         <strong>Corrigir episódios de séries:</strong> Se episódios foram importados com nomes genéricos 
                         (ex: "T01|EP01" sem o nome da série), delete-os e reimporte o M3U.
