@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Navbar } from '@/components/Navbar';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
@@ -67,7 +67,10 @@ const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const Admin = () => {
   const { isAdmin, loading } = useAuth();
   const [channels, setChannels] = useState<Channel[]>([]);
+  const [totalChannels, setTotalChannels] = useState({ total: 0, active: 0, inactive: 0 });
   const [loadingChannels, setLoadingChannels] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
   const [m3uContent, setM3uContent] = useState('');
   const [importing, setImporting] = useState(false);
   const [testJob, setTestJob] = useState<TestJob | null>(null);
@@ -76,7 +79,9 @@ const Admin = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [usedM3uLinks, setUsedM3uLinks] = useState<M3uLink[]>([]);
   const [loadingLinks, setLoadingLinks] = useState(true);
-  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('active'); // Default to active
+  const listRef = useRef<HTMLDivElement>(null);
+  const PAGE_SIZE = 100;
 
   // Poll for test job status
   useEffect(() => {
@@ -110,12 +115,35 @@ const Admin = () => {
     return () => clearInterval(interval);
   }, [isAdmin, testJob?.status]);
 
+  // Fetch counts for stats
+  const fetchChannelCounts = async () => {
+    const [totalRes, activeRes, inactiveRes] = await Promise.all([
+      supabase.from('channels').select('*', { count: 'exact', head: true }),
+      supabase.from('channels').select('*', { count: 'exact', head: true }).eq('active', true),
+      supabase.from('channels').select('*', { count: 'exact', head: true }).eq('active', false),
+    ]);
+    
+    setTotalChannels({
+      total: totalRes.count || 0,
+      active: activeRes.count || 0,
+      inactive: inactiveRes.count || 0,
+    });
+  };
+
   useEffect(() => {
     if (isAdmin) {
-      fetchChannels();
+      fetchChannelCounts();
+      fetchChannels(true);
       fetchM3uLinks();
     }
   }, [isAdmin]);
+
+  // Refetch when filters change
+  useEffect(() => {
+    if (isAdmin) {
+      fetchChannels(true);
+    }
+  }, [statusFilter, selectedCategory, searchTerm]);
 
   const fetchM3uLinks = async () => {
     setLoadingLinks(true);
@@ -144,40 +172,71 @@ const Admin = () => {
     }
   };
 
-  const fetchChannels = async () => {
-    setLoadingChannels(true);
-    
-    // Fetch all channels without the default 1000 limit
-    const allChannels: Channel[] = [];
-    let from = 0;
-    const batchSize = 1000;
-    let hasMore = true;
-    
-    while (hasMore) {
-      const { data, error } = await supabase
-        .from('channels')
-        .select('*')
-        .order('name')
-        .range(from, from + batchSize - 1);
-      
-      if (error) {
-        toast.error('Erro ao carregar canais');
-        console.error(error);
-        break;
-      }
-      
-      if (data && data.length > 0) {
-        allChannels.push(...data);
-        from += batchSize;
-        hasMore = data.length === batchSize;
-      } else {
-        hasMore = false;
-      }
+  const fetchChannels = async (reset = false) => {
+    if (reset) {
+      setLoadingChannels(true);
+      setChannels([]);
+    } else {
+      setLoadingMore(true);
     }
     
-    setChannels(allChannels);
+    const from = reset ? 0 : channels.length;
+    
+    let query = supabase
+      .from('channels')
+      .select('*')
+      .order('name')
+      .range(from, from + PAGE_SIZE - 1);
+    
+    // Apply status filter
+    if (statusFilter === 'active') {
+      query = query.eq('active', true);
+    } else if (statusFilter === 'inactive') {
+      query = query.eq('active', false);
+    }
+    
+    // Apply category filter
+    if (selectedCategory !== 'all') {
+      query = query.eq('category', selectedCategory);
+    }
+    
+    // Apply search filter
+    if (searchTerm.trim()) {
+      query = query.ilike('name', `%${searchTerm.trim()}%`);
+    }
+    
+    const { data, error } = await query;
+    
+    if (error) {
+      toast.error('Erro ao carregar canais');
+      console.error(error);
+    } else {
+      const newChannels = data || [];
+      if (reset) {
+        setChannels(newChannels);
+      } else {
+        setChannels(prev => [...prev, ...newChannels]);
+      }
+      setHasMore(newChannels.length === PAGE_SIZE);
+    }
+    
     setLoadingChannels(false);
+    setLoadingMore(false);
   };
+
+  const loadMore = useCallback(() => {
+    if (!loadingMore && hasMore) {
+      fetchChannels(false);
+    }
+  }, [loadingMore, hasMore, channels.length, statusFilter, selectedCategory, searchTerm]);
+
+  // Infinite scroll handler
+  const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+    const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
+    if (scrollHeight - scrollTop <= clientHeight + 100) {
+      loadMore();
+    }
+  }, [loadMore]);
 
   const parseM3U = (content: string): Omit<Channel, 'id'>[] => {
     const lines = content.split('\n');
@@ -506,22 +565,14 @@ const Admin = () => {
       toast.success(`${deactivatedCount} canais desativados`);
     }
     
-    fetchChannels();
+    fetchChannels(true);
+    fetchChannelCounts();
   };
 
   const categories = ['all', ...new Set(channels.map(c => c.category))];
   
-  const filteredChannels = channels.filter(channel => {
-    const matchesCategory = selectedCategory === 'all' || channel.category === selectedCategory;
-    const matchesSearch = channel.name.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesStatus = statusFilter === 'all' || 
-      (statusFilter === 'active' && channel.active) || 
-      (statusFilter === 'inactive' && !channel.active);
-    return matchesCategory && matchesSearch && matchesStatus;
-  });
-
-  const activeCount = channels.filter(c => c.active).length;
-  const inactiveCount = channels.filter(c => !c.active).length;
+  // No need to filter again since the query already applies filters
+  const filteredChannels = channels;
 
   if (loading) {
     return (
@@ -553,7 +604,7 @@ const Admin = () => {
                 <div className="flex items-center gap-3">
                   <Tv className="h-8 w-8 text-primary" />
                   <div>
-                    <p className="text-2xl font-bold">{channels.length}</p>
+                    <p className="text-2xl font-bold">{totalChannels.total}</p>
                     <p className="text-sm text-muted-foreground">Total de Canais</p>
                   </div>
                 </div>
@@ -567,7 +618,7 @@ const Admin = () => {
                 <div className="flex items-center gap-3">
                   <CheckCircle className="h-8 w-8 text-green-500" />
                   <div>
-                    <p className="text-2xl font-bold">{activeCount}</p>
+                    <p className="text-2xl font-bold">{totalChannels.active}</p>
                     <p className="text-sm text-muted-foreground">Ativos</p>
                   </div>
                 </div>
@@ -581,7 +632,7 @@ const Admin = () => {
                 <div className="flex items-center gap-3">
                   <XCircle className="h-8 w-8 text-red-500" />
                   <div>
-                    <p className="text-2xl font-bold">{inactiveCount}</p>
+                    <p className="text-2xl font-bold">{totalChannels.inactive}</p>
                     <p className="text-sm text-muted-foreground">Inativos</p>
                   </div>
                 </div>
@@ -717,7 +768,11 @@ const Admin = () => {
                   )}
 
                   {/* Channels List */}
-                  <div className="max-h-[600px] overflow-y-auto space-y-2">
+                  <div 
+                    ref={listRef}
+                    className="max-h-[600px] overflow-y-auto space-y-2"
+                    onScroll={handleScroll}
+                  >
                     {loadingChannels ? (
                       <div className="flex items-center justify-center py-8">
                         <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -727,65 +782,78 @@ const Admin = () => {
                         Nenhum canal encontrado
                       </p>
                     ) : (
-                      filteredChannels.map(channel => {
-                        const testResult = testResults.get(channel.stream_url);
-                        return (
-                          <div
-                            key={channel.id}
-                            className="flex items-center gap-4 p-3 rounded-lg bg-secondary/30 hover:bg-secondary/50 transition-colors"
-                          >
-                            {channel.logo_url ? (
-                              <img
-                                src={channel.logo_url}
-                                alt={channel.name}
-                                className="h-10 w-10 object-contain rounded"
-                                onError={(e) => (e.currentTarget.style.display = 'none')}
-                              />
-                            ) : (
-                              <div className="h-10 w-10 bg-muted rounded flex items-center justify-center">
-                                <Tv className="h-5 w-5 text-muted-foreground" />
-                              </div>
-                            )}
-                            <div className="flex-1 min-w-0">
-                              <p className="font-medium truncate">{channel.name}</p>
-                              <p className="text-sm text-muted-foreground truncate">
-                                {channel.category}
-                              </p>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              {testResult && (
-                                <Badge
-                                  variant={testResult.status === 'online' ? 'default' : 'destructive'}
-                                  className={testResult.status === 'online' ? 'bg-green-600' : ''}
-                                >
-                                  {testResult.status === 'online' ? 'Online' : 'Offline'}
-                                </Badge>
+                      <>
+                        {filteredChannels.map(channel => {
+                          const testResult = testResults.get(channel.stream_url);
+                          return (
+                            <div
+                              key={channel.id}
+                              className="flex items-center gap-4 p-3 rounded-lg bg-secondary/30 hover:bg-secondary/50 transition-colors"
+                            >
+                              {channel.logo_url ? (
+                                <img
+                                  src={channel.logo_url}
+                                  alt={channel.name}
+                                  className="h-10 w-10 object-contain rounded"
+                                  onError={(e) => (e.currentTarget.style.display = 'none')}
+                                />
+                              ) : (
+                                <div className="h-10 w-10 bg-muted rounded flex items-center justify-center">
+                                  <Tv className="h-5 w-5 text-muted-foreground" />
+                                </div>
                               )}
-                              <Badge variant={channel.active ? 'default' : 'secondary'}>
-                                {channel.active ? 'Ativo' : 'Inativo'}
-                              </Badge>
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                onClick={() => updateChannelStatus(channel.id, !channel.active)}
-                              >
-                                {channel.active ? (
-                                  <XCircle className="h-4 w-4 text-red-500" />
-                                ) : (
-                                  <CheckCircle className="h-4 w-4 text-green-500" />
+                              <div className="flex-1 min-w-0">
+                                <p className="font-medium truncate">{channel.name}</p>
+                                <p className="text-sm text-muted-foreground truncate">
+                                  {channel.category}
+                                </p>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                {testResult && (
+                                  <Badge
+                                    variant={testResult.status === 'online' ? 'default' : 'destructive'}
+                                    className={testResult.status === 'online' ? 'bg-green-600' : ''}
+                                  >
+                                    {testResult.status === 'online' ? 'Online' : 'Offline'}
+                                  </Badge>
                                 )}
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                onClick={() => deleteChannel(channel.id)}
-                              >
-                                <Trash2 className="h-4 w-4 text-destructive" />
-                              </Button>
+                                <Badge variant={channel.active ? 'default' : 'secondary'}>
+                                  {channel.active ? 'Ativo' : 'Inativo'}
+                                </Badge>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => updateChannelStatus(channel.id, !channel.active)}
+                                >
+                                  {channel.active ? (
+                                    <XCircle className="h-4 w-4 text-red-500" />
+                                  ) : (
+                                    <CheckCircle className="h-4 w-4 text-green-500" />
+                                  )}
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => deleteChannel(channel.id)}
+                                >
+                                  <Trash2 className="h-4 w-4 text-destructive" />
+                                </Button>
+                              </div>
                             </div>
+                          );
+                        })}
+                        {loadingMore && (
+                          <div className="flex items-center justify-center py-4">
+                            <Loader2 className="h-6 w-6 animate-spin text-primary" />
+                            <span className="ml-2 text-sm text-muted-foreground">Carregando mais...</span>
                           </div>
-                        );
-                      })
+                        )}
+                        {!hasMore && filteredChannels.length > 0 && (
+                          <p className="text-center text-sm text-muted-foreground py-4">
+                            Todos os {filteredChannels.length} canais carregados
+                          </p>
+                        )}
+                      </>
                     )}
                   </div>
                 </CardContent>
