@@ -25,7 +25,21 @@ serve(async (req) => {
     }
 
     // Decode the URL if it's encoded
-    const decodedUrl = decodeURIComponent(streamUrl);
+    let decodedUrl = decodeURIComponent(streamUrl);
+    
+    // Check for recursive/double proxying - extract original URL if proxied URL was passed
+    if (decodedUrl.includes('/functions/v1/stream-proxy')) {
+      try {
+        const nestedUrl = new URL(decodedUrl);
+        const nestedStreamUrl = nestedUrl.searchParams.get('url');
+        if (nestedStreamUrl) {
+          decodedUrl = decodeURIComponent(nestedStreamUrl);
+          console.log('Detected double-proxied URL, extracting original:', decodedUrl);
+        }
+      } catch {
+        // Ignore parsing errors
+      }
+    }
     
     console.log('Proxying stream:', decodedUrl);
 
