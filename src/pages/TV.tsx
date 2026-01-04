@@ -1,24 +1,17 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Navbar } from '@/components/Navbar';
-import { ChannelCard } from '@/components/ChannelCard';
+import { ChannelGroupCard } from '@/components/ChannelGroupCard';
 import { VideoPlayer } from '@/components/VideoPlayer';
 import { AdultContentGate, isAdultCategory, isAdultContentVerified } from '@/components/AdultContentGate';
 import { supabase } from '@/integrations/supabase/client';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Loader2, Search, X } from 'lucide-react';
+import { Loader2, Search, X, Grid, List } from 'lucide-react';
 import { Input } from '@/components/ui/input';
+import { useChannelGroups, Channel } from '@/hooks/useChannelGroups';
+import { Button } from '@/components/ui/button';
+import { ChannelCard } from '@/components/ChannelCard';
 
-interface Channel {
-  id: string;
-  name: string;
-  category: string;
-  country: string;
-  logo_url: string | null;
-  stream_url: string;
-  active: boolean;
-}
-
-const PAGE_SIZE = 100;
+const PAGE_SIZE = 200;
 
 const TV = () => {
   const [channels, setChannels] = useState<Channel[]>([]);
@@ -33,7 +26,11 @@ const TV = () => {
   const [categories, setCategories] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [viewMode, setViewMode] = useState<'grouped' | 'list'>('grouped');
   const containerRef = useRef<HTMLDivElement>(null);
+
+  // Use channel grouping hook
+  const channelGroups = useChannelGroups(channels);
 
   // Debounce search
   useEffect(() => {
@@ -70,11 +67,7 @@ const TV = () => {
         .select('*', { count: 'exact', head: true })
         .eq('active', true);
 
-      if (selectedCategory === 'Todos') {
-        // Exclude adult categories
-      } else if (selectedCategory === '🔞 Adulto') {
-        // Will be filtered client-side after fetch
-      } else {
+      if (selectedCategory !== 'Todos' && selectedCategory !== '🔞 Adulto') {
         query = query.eq('category', selectedCategory);
       }
 
@@ -116,13 +109,13 @@ const TV = () => {
     if (error) {
       console.error('Error fetching channels:', error);
     } else if (data) {
-      let filteredData = data;
+      let filteredData = data as Channel[];
       
       // Filter for adult/non-adult content
       if (selectedCategory === 'Todos') {
-        filteredData = data.filter(c => !isAdultCategory(c.category));
+        filteredData = filteredData.filter(c => !isAdultCategory(c.category));
       } else if (selectedCategory === '🔞 Adulto') {
-        filteredData = data.filter(c => isAdultCategory(c.category));
+        filteredData = filteredData.filter(c => isAdultCategory(c.category));
       }
 
       if (reset) {
@@ -197,28 +190,49 @@ const TV = () => {
         <div className="mb-8">
           <h1 className="font-display text-4xl md:text-5xl tracking-wide mb-4">TV ao Vivo</h1>
           <p className="text-muted-foreground">
-            {loading ? 'Carregando...' : `Assista aos melhores canais ao vivo • ${channels.length} de ${totalChannels} canais`}
+            {loading ? 'Carregando...' : `${channelGroups.length} grupos • ${channels.length} canais de ${totalChannels} disponíveis`}
           </p>
         </div>
 
-        {/* Search */}
-        <div className="relative mb-6 max-w-md">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input
-            type="text"
-            placeholder="Buscar canais..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-10 pr-10"
-          />
-          {searchQuery && (
-            <button
-              onClick={() => setSearchQuery('')}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+        {/* Search and View Toggle */}
+        <div className="flex flex-col sm:flex-row gap-4 mb-6">
+          <div className="relative flex-1 max-w-md">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              type="text"
+              placeholder="Buscar canais..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-10 pr-10"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery('')}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            )}
+          </div>
+          
+          <div className="flex gap-2">
+            <Button
+              variant={viewMode === 'grouped' ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setViewMode('grouped')}
             >
-              <X className="h-4 w-4" />
-            </button>
-          )}
+              <Grid className="h-4 w-4 mr-2" />
+              Agrupado
+            </Button>
+            <Button
+              variant={viewMode === 'list' ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setViewMode('list')}
+            >
+              <List className="h-4 w-4 mr-2" />
+              Lista
+            </Button>
+          </div>
         </div>
 
         {/* Category Filter */}
@@ -253,18 +267,30 @@ const TV = () => {
           </div>
         ) : (
           <>
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
-              {channels.map((channel) => (
-                <ChannelCard
-                  key={channel.id}
-                  channel={{
-                    ...channel,
-                    logo_url: channel.logo_url || '',
-                  }}
-                  onPlay={() => handlePlayChannel(channel)}
-                />
-              ))}
-            </div>
+            {viewMode === 'grouped' ? (
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+                {channelGroups.map((group) => (
+                  <ChannelGroupCard
+                    key={group.groupName}
+                    group={group}
+                    onPlay={handlePlayChannel}
+                  />
+                ))}
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+                {channels.map((channel) => (
+                  <ChannelCard
+                    key={channel.id}
+                    channel={{
+                      ...channel,
+                      logo_url: channel.logo_url || '',
+                    }}
+                    onPlay={() => handlePlayChannel(channel)}
+                  />
+                ))}
+              </div>
+            )}
 
             {/* Loading more indicator */}
             {loadingMore && (
@@ -276,7 +302,7 @@ const TV = () => {
             {/* End of list */}
             {!hasMore && channels.length > 0 && (
               <p className="text-center text-muted-foreground py-8">
-                Todos os {channels.length} canais carregados
+                Todos os {channels.length} canais carregados ({channelGroups.length} grupos)
               </p>
             )}
           </>
