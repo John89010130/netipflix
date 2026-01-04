@@ -1,11 +1,12 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Navbar } from '@/components/Navbar';
 import { ContentCard } from '@/components/ContentCard';
 import { VideoPlayer } from '@/components/VideoPlayer';
-import { AdultContentGate, isAdultCategory, isAdultContentVerified, setAdultContentVerified } from '@/components/AdultContentGate';
+import { AdultContentGate, isAdultCategory, isAdultContentVerified } from '@/components/AdultContentGate';
 import { supabase } from '@/integrations/supabase/client';
 import { ContentItem } from '@/types';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Loader2 } from 'lucide-react';
 
 interface Movie {
   id: string;
@@ -22,55 +23,129 @@ interface Movie {
   active: boolean;
 }
 
+const PAGE_SIZE = 100;
+
 const Movies = () => {
   const [movies, setMovies] = useState<Movie[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
+  const [totalMovies, setTotalMovies] = useState(0);
   const [currentVideo, setCurrentVideo] = useState<{ src: string; title: string; poster?: string } | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<string>('Todos');
   const [showAdultGate, setShowAdultGate] = useState(false);
   const [pendingAdultCategory, setPendingAdultCategory] = useState<string | null>(null);
+  const [categories, setCategories] = useState<string[]>([]);
+  const containerRef = useRef<HTMLDivElement>(null);
 
+  // Fetch categories once
   useEffect(() => {
-    const fetchMovies = async () => {
-      const allMovies: Movie[] = [];
-      let from = 0;
-      const batchSize = 1000;
-      let hasMore = true;
+    const fetchCategories = async () => {
+      const { data, error } = await supabase
+        .from('movies')
+        .select('category')
+        .eq('active', true);
 
-      while (hasMore) {
-        const { data, error } = await supabase
-          .from('movies')
-          .select('*')
-          .eq('active', true)
-          .order('title')
-          .range(from, from + batchSize - 1);
-
-        if (error) {
-          console.error('Error fetching movies:', error);
-          break;
-        }
-
-        if (data && data.length > 0) {
-          allMovies.push(...data);
-          from += batchSize;
-          hasMore = data.length === batchSize;
-        } else {
-          hasMore = false;
-        }
+      if (!error && data) {
+        const uniqueCategories = [...new Set(data.map(m => m.category))].sort();
+        const regularCategories = uniqueCategories.filter(c => !isAdultCategory(c));
+        const adultCategories = uniqueCategories.filter(c => isAdultCategory(c));
+        setCategories(['Todos', ...regularCategories, ...(adultCategories.length > 0 ? ['🔞 Adulto'] : [])]);
       }
-
-      setMovies(allMovies);
-      setLoading(false);
     };
 
-    fetchMovies();
+    fetchCategories();
   }, []);
 
-  // Get unique categories, separating adult content
-  const regularCategories = [...new Set(movies.filter(m => !isAdultCategory(m.category)).map(m => m.category))].sort();
-  const adultCategories = [...new Set(movies.filter(m => isAdultCategory(m.category)).map(m => m.category))].sort();
-  
-  const allCategories = ['Todos', ...regularCategories, ...(adultCategories.length > 0 ? ['🔞 Adulto'] : [])];
+  // Fetch total count
+  useEffect(() => {
+    const fetchCount = async () => {
+      let query = supabase
+        .from('movies')
+        .select('*', { count: 'exact', head: true })
+        .eq('active', true);
+
+      if (selectedCategory !== 'Todos' && selectedCategory !== '🔞 Adulto') {
+        query = query.eq('category', selectedCategory);
+      }
+
+      const { count } = await query;
+      setTotalMovies(count || 0);
+    };
+
+    fetchCount();
+  }, [selectedCategory]);
+
+  // Fetch movies with pagination
+  const fetchMovies = useCallback(async (reset = false) => {
+    if (reset) {
+      setLoading(true);
+      setMovies([]);
+    } else {
+      setLoadingMore(true);
+    }
+
+    const from = reset ? 0 : movies.length;
+
+    let query = supabase
+      .from('movies')
+      .select('*')
+      .eq('active', true)
+      .order('title')
+      .range(from, from + PAGE_SIZE - 1);
+
+    if (selectedCategory !== 'Todos' && selectedCategory !== '🔞 Adulto') {
+      query = query.eq('category', selectedCategory);
+    }
+
+    const { data, error } = await query;
+
+    if (error) {
+      console.error('Error fetching movies:', error);
+    } else if (data) {
+      let filteredData = data;
+      
+      // Filter for adult/non-adult content
+      if (selectedCategory === 'Todos') {
+        filteredData = data.filter(m => !isAdultCategory(m.category));
+      } else if (selectedCategory === '🔞 Adulto') {
+        filteredData = data.filter(m => isAdultCategory(m.category));
+      }
+
+      if (reset) {
+        setMovies(filteredData);
+      } else {
+        setMovies(prev => [...prev, ...filteredData]);
+      }
+      setHasMore(data.length === PAGE_SIZE);
+    }
+
+    setLoading(false);
+    setLoadingMore(false);
+  }, [movies.length, selectedCategory]);
+
+  // Initial fetch and refetch on category change
+  useEffect(() => {
+    fetchMovies(true);
+  }, [selectedCategory]);
+
+  // Scroll handler for infinite scroll
+  const handleScroll = useCallback(() => {
+    if (loadingMore || !hasMore) return;
+
+    const scrollTop = window.scrollY;
+    const windowHeight = window.innerHeight;
+    const documentHeight = document.documentElement.scrollHeight;
+
+    if (scrollTop + windowHeight >= documentHeight - 500) {
+      fetchMovies(false);
+    }
+  }, [loadingMore, hasMore, fetchMovies]);
+
+  useEffect(() => {
+    window.addEventListener('scroll', handleScroll);
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, [handleScroll]);
 
   const handleCategoryClick = (category: string) => {
     if (category === '🔞 Adulto') {
@@ -93,16 +168,6 @@ const Movies = () => {
     }
   };
 
-  const filteredMovies = (() => {
-    if (selectedCategory === 'Todos') {
-      return movies.filter(m => !isAdultCategory(m.category));
-    }
-    if (selectedCategory === '🔞 Adulto') {
-      return movies.filter(m => isAdultCategory(m.category));
-    }
-    return movies.filter(m => m.category === selectedCategory);
-  })();
-
   const handlePlay = (item: ContentItem) => {
     setCurrentVideo({
       src: item.stream_url,
@@ -112,7 +177,7 @@ const Movies = () => {
   };
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-background" ref={containerRef}>
       <Navbar />
 
       <main className="pt-24 px-4 md:px-12 pb-16">
@@ -120,18 +185,18 @@ const Movies = () => {
         <div className="mb-8">
           <h1 className="font-display text-4xl md:text-5xl tracking-wide mb-4">Filmes</h1>
           <p className="text-muted-foreground">
-            {loading ? 'Carregando...' : `${movies.filter(m => !isAdultCategory(m.category)).length} filmes disponíveis`}
+            {loading ? 'Carregando...' : `${movies.length} de ${totalMovies} filmes`}
           </p>
         </div>
 
         {/* Category Filter */}
         <div className="flex gap-2 mb-8 overflow-x-auto scrollbar-hide pb-2">
-          {loading ? (
+          {loading && categories.length === 0 ? (
             Array.from({ length: 6 }).map((_, i) => (
               <Skeleton key={i} className="h-10 w-24 rounded-full flex-shrink-0" />
             ))
           ) : (
-            allCategories.map((category) => (
+            categories.map((category) => (
               <button
                 key={category}
                 onClick={() => handleCategoryClick(category)}
@@ -155,34 +220,50 @@ const Movies = () => {
             ))}
           </div>
         ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
-            {filteredMovies.map((movie) => {
-              const item: ContentItem = {
-                id: movie.id,
-                title: movie.title,
-                poster_url: movie.poster_url || undefined,
-                backdrop_url: movie.backdrop_url || undefined,
-                category: movie.category,
-                type: 'MOVIE',
-                stream_url: movie.stream_url,
-                description: movie.description || undefined,
-                year: movie.year || undefined,
-                duration: movie.duration || undefined,
-                rating: movie.rating || undefined,
-                views_count: movie.views_count,
-              };
-              return (
-                <ContentCard
-                  key={movie.id}
-                  item={item}
-                  onPlay={handlePlay}
-                />
-              );
-            })}
-          </div>
+          <>
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+              {movies.map((movie) => {
+                const item: ContentItem = {
+                  id: movie.id,
+                  title: movie.title,
+                  poster_url: movie.poster_url || undefined,
+                  backdrop_url: movie.backdrop_url || undefined,
+                  category: movie.category,
+                  type: 'MOVIE',
+                  stream_url: movie.stream_url,
+                  description: movie.description || undefined,
+                  year: movie.year || undefined,
+                  duration: movie.duration || undefined,
+                  rating: movie.rating || undefined,
+                  views_count: movie.views_count,
+                };
+                return (
+                  <ContentCard
+                    key={movie.id}
+                    item={item}
+                    onPlay={handlePlay}
+                  />
+                );
+              })}
+            </div>
+
+            {/* Loading more indicator */}
+            {loadingMore && (
+              <div className="flex justify-center py-8">
+                <Loader2 className="h-8 w-8 animate-spin text-primary" />
+              </div>
+            )}
+
+            {/* End of list */}
+            {!hasMore && movies.length > 0 && (
+              <p className="text-center text-muted-foreground py-8">
+                Todos os {movies.length} filmes carregados
+              </p>
+            )}
+          </>
         )}
 
-        {!loading && filteredMovies.length === 0 && (
+        {!loading && movies.length === 0 && (
           <div className="text-center py-16">
             <p className="text-muted-foreground">Nenhum filme encontrado nesta categoria.</p>
           </div>
