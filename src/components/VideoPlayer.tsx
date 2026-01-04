@@ -244,6 +244,23 @@ export const VideoPlayer = ({ src, title, poster, onClose, autoPlay = true }: Vi
         <div className="absolute inset-0 flex flex-col items-center justify-center z-10 p-8">
           <div className="bg-destructive/20 border border-destructive/50 rounded-lg p-6 max-w-md text-center">
             <p className="text-destructive-foreground mb-4">{error}</p>
+            
+            {/* Stream URL for admins in error state */}
+            {isAdmin && (
+              <div className="mb-4 flex items-center gap-2 bg-secondary/80 backdrop-blur-sm rounded-lg p-3 text-left">
+                <code className="flex-1 text-xs text-foreground break-all font-mono">
+                  {src}
+                </code>
+                <button
+                  onClick={copyStreamUrl}
+                  className="p-2 hover:bg-background/50 rounded-md transition-colors shrink-0"
+                  title="Copiar link"
+                >
+                  {copied ? <Check className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4" />}
+                </button>
+              </div>
+            )}
+            
             <button 
               onClick={onClose}
               className="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors"
