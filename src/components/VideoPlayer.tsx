@@ -13,11 +13,20 @@ import {
   Copy,
   Check,
   Link,
-  AlertTriangle
+  AlertTriangle,
+  Cast,
+  Airplay,
+  MonitorSmartphone
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'sonner';
+import { 
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 
 // Ensure HTTPS for proxy URL to avoid mixed content errors
 const SUPABASE_URL = (import.meta.env.VITE_SUPABASE_URL || '').replace(/^http:\/\//i, 'https://');
@@ -179,6 +188,8 @@ export const VideoPlayer = ({ src, title, poster, onClose, autoPlay = true }: Vi
   const [copied, setCopied] = useState(false);
   const [copiedProxied, setCopiedProxied] = useState(false);
   const [streamInfo, setStreamInfo] = useState<{ type: StreamType; contentType?: string } | null>(null);
+  const [isCasting, setIsCasting] = useState(false);
+  const [isPiP, setIsPiP] = useState(false);
   
   const { isAdmin } = useAuth();
   
@@ -500,6 +511,74 @@ export const VideoPlayer = ({ src, title, poster, onClose, autoPlay = true }: Vi
     setIsFullscreen(!isFullscreen);
   };
 
+  // Picture-in-Picture
+  const togglePiP = async () => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    try {
+      if (document.pictureInPictureElement) {
+        await document.exitPictureInPicture();
+        setIsPiP(false);
+      } else if (document.pictureInPictureEnabled) {
+        await video.requestPictureInPicture();
+        setIsPiP(true);
+        toast.success('Picture-in-Picture ativado');
+      } else {
+        toast.error('Picture-in-Picture não suportado');
+      }
+    } catch (err) {
+      console.error('PiP error:', err);
+      toast.error('Erro ao ativar Picture-in-Picture');
+    }
+  };
+
+  // AirPlay for Safari/iOS
+  const startAirPlay = () => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    if ((video as any).webkitShowPlaybackTargetPicker) {
+      (video as any).webkitShowPlaybackTargetPicker();
+    } else {
+      toast.error('AirPlay não suportado neste navegador');
+    }
+  };
+
+  // Check AirPlay availability
+  const isAirPlayAvailable = () => {
+    const video = videoRef.current;
+    return video && (video as any).webkitShowPlaybackTargetPicker !== undefined;
+  };
+
+  // Request Remote Playback (Chromecast/Cast)
+  const startCast = async () => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    try {
+      if ((video as any).remote && (video as any).remote.watchAvailability) {
+        const remote = (video as any).remote;
+        await remote.prompt();
+        toast.success('Conectando ao dispositivo...');
+        setIsCasting(true);
+      } else {
+        // Fallback: copy stream URL for external player
+        await navigator.clipboard.writeText(src);
+        toast.success('Link copiado! Cole em um player externo ou Smart TV.');
+      }
+    } catch (err) {
+      console.error('Cast error:', err);
+      // If remote playback not supported, copy URL as fallback
+      try {
+        await navigator.clipboard.writeText(src);
+        toast.info('Link copiado para usar em outro dispositivo');
+      } catch {
+        toast.error('Espelhamento não disponível');
+      }
+    }
+  };
+
   const handleTimeUpdate = () => {
     const video = videoRef.current;
     if (!video) return;
@@ -752,9 +831,40 @@ export const VideoPlayer = ({ src, title, poster, onClose, autoPlay = true }: Vi
               </span>
             </div>
 
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2 md:gap-4">
+              {/* Cast/Mirror Menu */}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button 
+                    className={cn(
+                      "p-2 hover:bg-secondary/50 rounded-full transition-colors",
+                      isCasting && "text-primary"
+                    )}
+                    title="Espelhar tela"
+                  >
+                    <Cast className="h-5 w-5 md:h-6 md:w-6" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-48">
+                  <DropdownMenuItem onClick={togglePiP} className="gap-2">
+                    <MonitorSmartphone className="h-4 w-4" />
+                    {isPiP ? 'Sair do PiP' : 'Picture-in-Picture'}
+                  </DropdownMenuItem>
+                  {isAirPlayAvailable() && (
+                    <DropdownMenuItem onClick={startAirPlay} className="gap-2">
+                      <Airplay className="h-4 w-4" />
+                      AirPlay
+                    </DropdownMenuItem>
+                  )}
+                  <DropdownMenuItem onClick={startCast} className="gap-2">
+                    <Cast className="h-4 w-4" />
+                    {isCasting ? 'Parar Cast' : 'Transmitir / Copiar Link'}
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+              
               <button onClick={toggleFullscreen} className="p-2 hover:bg-secondary/50 rounded-full transition-colors">
-                {isFullscreen ? <Minimize className="h-6 w-6" /> : <Maximize className="h-6 w-6" />}
+                {isFullscreen ? <Minimize className="h-5 w-5 md:h-6 md:w-6" /> : <Maximize className="h-5 w-5 md:h-6 md:w-6" />}
               </button>
             </div>
           </div>
