@@ -21,6 +21,8 @@ export type Database = {
           country: string
           created_at: string
           id: string
+          last_test_status: string | null
+          last_tested_at: string | null
           logo_url: string | null
           name: string
           stream_url: string
@@ -32,6 +34,8 @@ export type Database = {
           country?: string
           created_at?: string
           id?: string
+          last_test_status?: string | null
+          last_tested_at?: string | null
           logo_url?: string | null
           name: string
           stream_url: string
@@ -43,6 +47,8 @@ export type Database = {
           country?: string
           created_at?: string
           id?: string
+          last_test_status?: string | null
+          last_tested_at?: string | null
           logo_url?: string | null
           name?: string
           stream_url?: string
@@ -181,6 +187,7 @@ export type Database = {
       }
       profiles: {
         Row: {
+          adult_password: string | null
           avatar_url: string | null
           created_at: string
           email: string
@@ -189,6 +196,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          adult_password?: string | null
           avatar_url?: string | null
           created_at?: string
           email: string
@@ -197,6 +205,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          adult_password?: string | null
           avatar_url?: string | null
           created_at?: string
           email?: string

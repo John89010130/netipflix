@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Navbar } from '@/components/Navbar';
 import { ChannelCard } from '@/components/ChannelCard';
 import { VideoPlayer } from '@/components/VideoPlayer';
+import { AdultContentGate, isAdultCategory, isAdultContentVerified } from '@/components/AdultContentGate';
 import { supabase } from '@/integrations/supabase/client';
 import { Skeleton } from '@/components/ui/skeleton';
 
@@ -20,31 +21,81 @@ const TV = () => {
   const [loading, setLoading] = useState(true);
   const [currentVideo, setCurrentVideo] = useState<{ src: string; title: string } | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<string>('Todos');
+  const [showAdultGate, setShowAdultGate] = useState(false);
+  const [pendingAdultCategory, setPendingAdultCategory] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchChannels = async () => {
-      const { data, error } = await supabase
-        .from('channels')
-        .select('*')
-        .eq('active', true)
-        .order('name');
+      const allChannels: Channel[] = [];
+      let from = 0;
+      const batchSize = 1000;
+      let hasMore = true;
 
-      if (error) {
-        console.error('Error fetching channels:', error);
-      } else {
-        setChannels(data || []);
+      while (hasMore) {
+        const { data, error } = await supabase
+          .from('channels')
+          .select('*')
+          .eq('active', true)
+          .order('name')
+          .range(from, from + batchSize - 1);
+
+        if (error) {
+          console.error('Error fetching channels:', error);
+          break;
+        }
+
+        if (data && data.length > 0) {
+          allChannels.push(...data);
+          from += batchSize;
+          hasMore = data.length === batchSize;
+        } else {
+          hasMore = false;
+        }
       }
+
+      setChannels(allChannels);
       setLoading(false);
     };
 
     fetchChannels();
   }, []);
 
-  const categories = ['Todos', ...new Set(channels.map((c) => c.category))].sort();
+  // Get unique categories, separating adult content
+  const regularCategories = [...new Set(channels.filter(c => !isAdultCategory(c.category)).map(c => c.category))].sort();
+  const adultCategories = [...new Set(channels.filter(c => isAdultCategory(c.category)).map(c => c.category))].sort();
+  
+  const allCategories = ['Todos', ...regularCategories, ...(adultCategories.length > 0 ? ['🔞 Adulto'] : [])];
 
-  const filteredChannels = selectedCategory === 'Todos'
-    ? channels
-    : channels.filter((c) => c.category === selectedCategory);
+  const handleCategoryClick = (category: string) => {
+    if (category === '🔞 Adulto') {
+      if (isAdultContentVerified()) {
+        setSelectedCategory(category);
+      } else {
+        setPendingAdultCategory(category);
+        setShowAdultGate(true);
+      }
+    } else {
+      setSelectedCategory(category);
+    }
+  };
+
+  const handleAdultGateSuccess = () => {
+    setShowAdultGate(false);
+    if (pendingAdultCategory) {
+      setSelectedCategory(pendingAdultCategory);
+      setPendingAdultCategory(null);
+    }
+  };
+
+  const filteredChannels = (() => {
+    if (selectedCategory === 'Todos') {
+      return channels.filter(c => !isAdultCategory(c.category));
+    }
+    if (selectedCategory === '🔞 Adulto') {
+      return channels.filter(c => isAdultCategory(c.category));
+    }
+    return channels.filter(c => c.category === selectedCategory);
+  })();
 
   const handlePlayChannel = (channel: Channel) => {
     setCurrentVideo({
@@ -61,7 +112,9 @@ const TV = () => {
         {/* Header */}
         <div className="mb-8">
           <h1 className="font-display text-4xl md:text-5xl tracking-wide mb-4">TV ao Vivo</h1>
-          <p className="text-muted-foreground">Assista aos melhores canais ao vivo • {channels.length} canais disponíveis</p>
+          <p className="text-muted-foreground">
+            {loading ? 'Carregando...' : `Assista aos melhores canais ao vivo • ${channels.filter(c => !isAdultCategory(c.category)).length} canais disponíveis`}
+          </p>
         </div>
 
         {/* Category Filter */}
@@ -71,10 +124,10 @@ const TV = () => {
               <Skeleton key={i} className="h-10 w-24 rounded-full" />
             ))
           ) : (
-            categories.map((category) => (
+            allCategories.map((category) => (
               <button
                 key={category}
-                onClick={() => setSelectedCategory(category)}
+                onClick={() => handleCategoryClick(category)}
                 className={`px-4 py-2 rounded-full text-sm font-medium transition-all whitespace-nowrap ${
                   selectedCategory === category
                     ? 'bg-primary text-primary-foreground'
@@ -124,6 +177,16 @@ const TV = () => {
           onClose={() => setCurrentVideo(null)}
         />
       )}
+
+      {/* Adult Content Gate */}
+      <AdultContentGate
+        isOpen={showAdultGate}
+        onClose={() => {
+          setShowAdultGate(false);
+          setPendingAdultCategory(null);
+        }}
+        onSuccess={handleAdultGateSuccess}
+      />
     </div>
   );
 };

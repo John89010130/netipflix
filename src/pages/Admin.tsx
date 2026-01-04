@@ -31,6 +31,8 @@ interface Channel {
   logo_url: string | null;
   stream_url: string;
   active: boolean;
+  last_tested_at: string | null;
+  last_test_status: string | null;
 }
 
 interface StreamTestResult {
@@ -363,9 +365,37 @@ const Admin = () => {
     setTesting(true);
     setTestResults(new Map());
     
-    const urls = channelsToTest.map(c => c.stream_url);
-    const batchSize = 10; // Test in smaller batches for progress updates
-    const totalBatches = Math.ceil(urls.length / batchSize);
+    // Get today's date at midnight for comparison
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    // Filter out channels that were already tested today and are online
+    const channelsNeedingTest = channelsToTest.filter(channel => {
+      if (channel.last_tested_at && channel.last_test_status === 'online') {
+        const lastTestedDate = new Date(channel.last_tested_at);
+        lastTestedDate.setHours(0, 0, 0, 0);
+        // Skip if tested today and was online
+        if (lastTestedDate.getTime() === today.getTime()) {
+          return false;
+        }
+      }
+      return true;
+    });
+
+    const skippedCount = channelsToTest.length - channelsNeedingTest.length;
+    
+    if (skippedCount > 0) {
+      toast.info(`${skippedCount} canais pulados (já testados online hoje)`);
+    }
+
+    if (channelsNeedingTest.length === 0) {
+      toast.success('Todos os canais já foram testados hoje!');
+      setTesting(false);
+      return;
+    }
+    
+    const urls = channelsNeedingTest.map(c => c.stream_url);
+    const batchSize = 10;
     
     setTestProgress({ current: 0, total: urls.length, online: 0, offline: 0 });
     
@@ -376,7 +406,6 @@ const Admin = () => {
     try {
       for (let i = 0; i < urls.length; i += batchSize) {
         const batch = urls.slice(i, i + batchSize);
-        const batchNumber = Math.floor(i / batchSize) + 1;
         
         const response = await fetch(`${SUPABASE_URL}/functions/v1/test-stream`, {
           method: 'POST',
@@ -387,16 +416,28 @@ const Admin = () => {
         const data = await response.json();
         
         if (data.results) {
-          data.results.forEach((result: StreamTestResult) => {
+          for (const result of data.results as StreamTestResult[]) {
             allResults.set(result.url, result);
+            
             if (result.status === 'online') {
               onlineCount++;
             } else {
               offlineCount++;
             }
-          });
+
+            // Update channel's last_tested_at and last_test_status in database
+            const channel = channelsNeedingTest.find(c => c.stream_url === result.url);
+            if (channel) {
+              await supabase
+                .from('channels')
+                .update({
+                  last_tested_at: new Date().toISOString(),
+                  last_test_status: result.status,
+                })
+                .eq('id', channel.id);
+            }
+          }
           
-          // Update state with progressive results
           setTestResults(new Map(allResults));
           setTestProgress({
             current: Math.min(i + batchSize, urls.length),
@@ -408,6 +449,9 @@ const Admin = () => {
       }
       
       toast.success(`Teste concluído: ${onlineCount} online, ${offlineCount} offline`);
+      
+      // Refresh channels to get updated test status
+      fetchChannels();
     } catch (error) {
       console.error('Test error:', error);
       toast.error('Erro ao testar streams');
