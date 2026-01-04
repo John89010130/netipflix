@@ -19,12 +19,6 @@ interface Channel {
   active: boolean;
 }
 
-// Helper to check if category is film-related
-const isFilmCategory = (category: string): boolean => {
-  const lower = category.toLowerCase();
-  return lower.includes('filme') || lower.includes('movie') || lower.includes('film');
-};
-
 const PAGE_SIZE = 300;
 
 const Movies = () => {
@@ -49,20 +43,19 @@ const Movies = () => {
     return () => clearTimeout(timer);
   }, [searchQuery]);
 
-  // Fetch categories once
+  // Fetch categories once - only MOVIE content
   useEffect(() => {
     const fetchCategories = async () => {
       const { data, error } = await supabase
         .from('channels')
         .select('category')
-        .eq('active', true);
+        .eq('active', true)
+        .eq('content_type', 'MOVIE');
 
       if (!error && data) {
-        const filmCategories = [...new Set(data.map(c => c.category))]
-          .filter(c => isFilmCategory(c))
-          .sort();
-        const regularCategories = filmCategories.filter(c => !isAdultCategory(c));
-        const adultCategories = filmCategories.filter(c => isAdultCategory(c));
+        const uniqueCategories = [...new Set(data.map(c => c.category))].sort();
+        const regularCategories = uniqueCategories.filter(c => !isAdultCategory(c));
+        const adultCategories = uniqueCategories.filter(c => isAdultCategory(c));
         setCategories(['Todos', ...regularCategories, ...(adultCategories.length > 0 ? ['🔞 Adulto'] : [])]);
       }
     };
@@ -70,7 +63,7 @@ const Movies = () => {
     fetchCategories();
   }, []);
 
-  // Fetch channels
+  // Fetch channels - only MOVIE content
   const fetchChannels = useCallback(async (reset = false, currentLength = 0) => {
     if (reset) {
       setLoading(true);
@@ -85,8 +78,13 @@ const Movies = () => {
       .from('channels')
       .select('*')
       .eq('active', true)
+      .eq('content_type', 'MOVIE')
       .order('name')
       .range(from, from + PAGE_SIZE - 1);
+
+    if (selectedCategory !== 'Todos' && selectedCategory !== '🔞 Adulto') {
+      query = query.eq('category', selectedCategory);
+    }
 
     if (debouncedSearch) {
       query = query.ilike('name', `%${debouncedSearch}%`);
@@ -102,16 +100,13 @@ const Movies = () => {
     }
     
     if (data) {
-      // Filter for film categories first
-      let filteredData = data.filter(c => isFilmCategory(c.category));
+      let filteredData = data as Channel[];
       
-      // Filter by selected category
+      // Filter by adult content
       if (selectedCategory === 'Todos') {
         filteredData = filteredData.filter(c => !isAdultCategory(c.category));
       } else if (selectedCategory === '🔞 Adulto') {
         filteredData = filteredData.filter(c => isAdultCategory(c.category));
-      } else {
-        filteredData = filteredData.filter(c => c.category === selectedCategory);
       }
 
       if (reset) {
