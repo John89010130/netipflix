@@ -19,13 +19,13 @@ import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'sonner';
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 
-// Convert HTTP URLs to use our HTTPS proxy
+// Use proxy for all stream URLs to avoid CORS issues
 const getProxiedUrl = (url: string): string => {
-  // If it's already HTTPS or not HTTP, return as-is
-  if (!url.startsWith('http://')) {
+  // Only proxy HTTP/HTTPS URLs
+  if (!url.startsWith('http://') && !url.startsWith('https://')) {
     return url;
   }
-  // Use our edge function proxy
+  // Use our edge function proxy for all external streams
   return `${SUPABASE_URL}/functions/v1/stream-proxy?url=${encodeURIComponent(url)}`;
 };
 
