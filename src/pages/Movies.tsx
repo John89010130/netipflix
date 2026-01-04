@@ -6,50 +6,64 @@ import { AdultContentGate, isAdultCategory, isAdultContentVerified } from '@/com
 import { supabase } from '@/integrations/supabase/client';
 import { ContentItem } from '@/types';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Search, X } from 'lucide-react';
+import { Input } from '@/components/ui/input';
 
-interface Movie {
+interface Channel {
   id: string;
-  title: string;
+  name: string;
   category: string;
-  poster_url: string | null;
-  backdrop_url: string | null;
+  country: string;
+  logo_url: string | null;
   stream_url: string;
-  description: string | null;
-  year: number | null;
-  duration: string | null;
-  rating: number | null;
-  views_count: number;
   active: boolean;
 }
 
-const PAGE_SIZE = 100;
+// Helper to check if category is film-related
+const isFilmCategory = (category: string): boolean => {
+  const lower = category.toLowerCase();
+  return lower.includes('filme') || lower.includes('movie') || lower.includes('film');
+};
+
+const PAGE_SIZE = 200;
 
 const Movies = () => {
-  const [movies, setMovies] = useState<Movie[]>([]);
+  const [channels, setChannels] = useState<Channel[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
-  const [totalMovies, setTotalMovies] = useState(0);
+  const [totalCount, setTotalCount] = useState(0);
   const [currentVideo, setCurrentVideo] = useState<{ src: string; title: string; poster?: string } | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<string>('Todos');
   const [showAdultGate, setShowAdultGate] = useState(false);
   const [pendingAdultCategory, setPendingAdultCategory] = useState<string | null>(null);
   const [categories, setCategories] = useState<string[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const containerRef = useRef<HTMLDivElement>(null);
+
+  // Debounce search
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchQuery);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
 
   // Fetch categories once
   useEffect(() => {
     const fetchCategories = async () => {
       const { data, error } = await supabase
-        .from('movies')
+        .from('channels')
         .select('category')
         .eq('active', true);
 
       if (!error && data) {
-        const uniqueCategories = [...new Set(data.map(m => m.category))].sort();
-        const regularCategories = uniqueCategories.filter(c => !isAdultCategory(c));
-        const adultCategories = uniqueCategories.filter(c => isAdultCategory(c));
+        const filmCategories = [...new Set(data.map(c => c.category))]
+          .filter(c => isFilmCategory(c))
+          .sort();
+        const regularCategories = filmCategories.filter(c => !isAdultCategory(c));
+        const adultCategories = filmCategories.filter(c => isAdultCategory(c));
         setCategories(['Todos', ...regularCategories, ...(adultCategories.length > 0 ? ['🔞 Adulto'] : [])]);
       }
     };
@@ -57,77 +71,62 @@ const Movies = () => {
     fetchCategories();
   }, []);
 
-  // Fetch total count
-  useEffect(() => {
-    const fetchCount = async () => {
-      let query = supabase
-        .from('movies')
-        .select('*', { count: 'exact', head: true })
-        .eq('active', true);
-
-      if (selectedCategory !== 'Todos' && selectedCategory !== '🔞 Adulto') {
-        query = query.eq('category', selectedCategory);
-      }
-
-      const { count } = await query;
-      setTotalMovies(count || 0);
-    };
-
-    fetchCount();
-  }, [selectedCategory]);
-
-  // Fetch movies with pagination
-  const fetchMovies = useCallback(async (reset = false) => {
+  // Fetch channels with pagination
+  const fetchChannels = useCallback(async (reset = false) => {
     if (reset) {
       setLoading(true);
-      setMovies([]);
+      setChannels([]);
     } else {
       setLoadingMore(true);
     }
 
-    const from = reset ? 0 : movies.length;
+    const from = reset ? 0 : channels.length;
 
     let query = supabase
-      .from('movies')
+      .from('channels')
       .select('*')
       .eq('active', true)
-      .order('title')
+      .order('name')
       .range(from, from + PAGE_SIZE - 1);
 
-    if (selectedCategory !== 'Todos' && selectedCategory !== '🔞 Adulto') {
-      query = query.eq('category', selectedCategory);
+    if (debouncedSearch) {
+      query = query.ilike('name', `%${debouncedSearch}%`);
     }
 
     const { data, error } = await query;
 
     if (error) {
-      console.error('Error fetching movies:', error);
+      console.error('Error fetching channels:', error);
     } else if (data) {
-      let filteredData = data;
+      // Filter for film categories
+      let filteredData = data.filter(c => isFilmCategory(c.category));
       
-      // Filter for adult/non-adult content
+      // Filter by selected category
       if (selectedCategory === 'Todos') {
-        filteredData = data.filter(m => !isAdultCategory(m.category));
+        filteredData = filteredData.filter(c => !isAdultCategory(c.category));
       } else if (selectedCategory === '🔞 Adulto') {
-        filteredData = data.filter(m => isAdultCategory(m.category));
+        filteredData = filteredData.filter(c => isAdultCategory(c.category));
+      } else {
+        filteredData = filteredData.filter(c => c.category === selectedCategory);
       }
 
       if (reset) {
-        setMovies(filteredData);
+        setChannels(filteredData);
+        setTotalCount(filteredData.length);
       } else {
-        setMovies(prev => [...prev, ...filteredData]);
+        setChannels(prev => [...prev, ...filteredData]);
       }
       setHasMore(data.length === PAGE_SIZE);
     }
 
     setLoading(false);
     setLoadingMore(false);
-  }, [movies.length, selectedCategory]);
+  }, [channels.length, selectedCategory, debouncedSearch]);
 
-  // Initial fetch and refetch on category change
+  // Initial fetch and refetch on category/search change
   useEffect(() => {
-    fetchMovies(true);
-  }, [selectedCategory]);
+    fetchChannels(true);
+  }, [selectedCategory, debouncedSearch]);
 
   // Scroll handler for infinite scroll
   const handleScroll = useCallback(() => {
@@ -138,9 +137,9 @@ const Movies = () => {
     const documentHeight = document.documentElement.scrollHeight;
 
     if (scrollTop + windowHeight >= documentHeight - 500) {
-      fetchMovies(false);
+      fetchChannels(false);
     }
-  }, [loadingMore, hasMore, fetchMovies]);
+  }, [loadingMore, hasMore, fetchChannels]);
 
   useEffect(() => {
     window.addEventListener('scroll', handleScroll);
@@ -185,8 +184,28 @@ const Movies = () => {
         <div className="mb-8">
           <h1 className="font-display text-4xl md:text-5xl tracking-wide mb-4">Filmes</h1>
           <p className="text-muted-foreground">
-            {loading ? 'Carregando...' : `${movies.length} de ${totalMovies} filmes`}
+            {loading ? 'Carregando...' : `${channels.length} filmes disponíveis`}
           </p>
+        </div>
+
+        {/* Search */}
+        <div className="relative mb-6 max-w-md">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            type="text"
+            placeholder="Buscar filmes..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="pl-10 pr-10"
+          />
+          {searchQuery && (
+            <button
+              onClick={() => setSearchQuery('')}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          )}
         </div>
 
         {/* Category Filter */}
@@ -212,7 +231,7 @@ const Movies = () => {
           )}
         </div>
 
-        {/* Movies Grid */}
+        {/* Films Grid */}
         {loading ? (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
             {Array.from({ length: 12 }).map((_, i) => (
@@ -222,24 +241,18 @@ const Movies = () => {
         ) : (
           <>
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
-              {movies.map((movie) => {
+              {channels.map((channel) => {
                 const item: ContentItem = {
-                  id: movie.id,
-                  title: movie.title,
-                  poster_url: movie.poster_url || undefined,
-                  backdrop_url: movie.backdrop_url || undefined,
-                  category: movie.category,
+                  id: channel.id,
+                  title: channel.name,
+                  poster_url: channel.logo_url || undefined,
+                  category: channel.category,
                   type: 'MOVIE',
-                  stream_url: movie.stream_url,
-                  description: movie.description || undefined,
-                  year: movie.year || undefined,
-                  duration: movie.duration || undefined,
-                  rating: movie.rating || undefined,
-                  views_count: movie.views_count,
+                  stream_url: channel.stream_url,
                 };
                 return (
                   <ContentCard
-                    key={movie.id}
+                    key={channel.id}
                     item={item}
                     onPlay={handlePlay}
                   />
@@ -255,15 +268,15 @@ const Movies = () => {
             )}
 
             {/* End of list */}
-            {!hasMore && movies.length > 0 && (
+            {!hasMore && channels.length > 0 && (
               <p className="text-center text-muted-foreground py-8">
-                Todos os {movies.length} filmes carregados
+                Todos os {channels.length} filmes carregados
               </p>
             )}
           </>
         )}
 
-        {!loading && movies.length === 0 && (
+        {!loading && channels.length === 0 && (
           <div className="text-center py-16">
             <p className="text-muted-foreground">Nenhum filme encontrado nesta categoria.</p>
           </div>
