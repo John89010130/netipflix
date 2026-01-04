@@ -19,7 +19,8 @@ import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'sonner';
 
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
+// Ensure HTTPS for proxy URL to avoid mixed content errors
+const SUPABASE_URL = (import.meta.env.VITE_SUPABASE_URL || '').replace(/^http:\/\//i, 'https://');
 
 type StreamType = 'hls' | 'mpegts' | 'mp4' | 'flv' | 'unknown';
 
