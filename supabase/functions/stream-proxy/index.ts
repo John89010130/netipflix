@@ -65,7 +65,10 @@ serve(async (req) => {
     if (contentType.includes('mpegurl') || decodedUrl.includes('.m3u8')) {
       const text = await response.text();
       const baseUrl = decodedUrl.substring(0, decodedUrl.lastIndexOf('/') + 1);
-      const proxyBaseUrl = `${url.origin}${url.pathname}?url=`;
+      
+      // Use HTTPS for the proxy URL to avoid mixed content issues
+      const proxyOrigin = url.origin.replace('http://', 'https://');
+      const proxyBaseUrl = `${proxyOrigin}${url.pathname}?url=`;
       
       // Rewrite relative URLs in the playlist to go through our proxy
       const rewrittenText = text.split('\n').map(line => {
