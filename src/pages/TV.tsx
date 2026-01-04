@@ -79,7 +79,7 @@ const TV = () => {
   }, [selectedCategory]);
 
   // Fetch channels with pagination
-  const fetchChannels = useCallback(async (reset = false) => {
+  const fetchChannels = useCallback(async (reset = false, currentLength = 0) => {
     if (reset) {
       setLoading(true);
       setChannels([]);
@@ -87,7 +87,7 @@ const TV = () => {
       setLoadingMore(true);
     }
 
-    const from = reset ? 0 : channels.length;
+    const from = reset ? 0 : currentLength;
 
     let query = supabase
       .from('channels')
@@ -108,10 +108,15 @@ const TV = () => {
 
     if (error) {
       console.error('Error fetching channels:', error);
-    } else if (data) {
+      setLoading(false);
+      setLoadingMore(false);
+      return;
+    }
+    
+    if (data) {
       let filteredData = data as Channel[];
       
-      // Filter for adult/non-adult content
+      // Filter for adult/non-adult content only when "Todos" or "Adulto" is selected
       if (selectedCategory === 'Todos') {
         filteredData = filteredData.filter(c => !isAdultCategory(c.category));
       } else if (selectedCategory === '🔞 Adulto') {
@@ -128,12 +133,12 @@ const TV = () => {
 
     setLoading(false);
     setLoadingMore(false);
-  }, [channels.length, selectedCategory, debouncedSearch]);
+  }, [selectedCategory, debouncedSearch]);
 
   // Initial fetch and refetch on category or search change
   useEffect(() => {
-    fetchChannels(true);
-  }, [selectedCategory, debouncedSearch]);
+    fetchChannels(true, 0);
+  }, [fetchChannels]);
 
   // Scroll handler for infinite scroll
   const handleScroll = useCallback(() => {
@@ -144,7 +149,10 @@ const TV = () => {
     const documentHeight = document.documentElement.scrollHeight;
 
     if (scrollTop + windowHeight >= documentHeight - 500) {
-      fetchChannels(false);
+      setChannels(prev => {
+        fetchChannels(false, prev.length);
+        return prev;
+      });
     }
   }, [loadingMore, hasMore, fetchChannels]);
 

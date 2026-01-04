@@ -25,14 +25,13 @@ const isFilmCategory = (category: string): boolean => {
   return lower.includes('filme') || lower.includes('movie') || lower.includes('film');
 };
 
-const PAGE_SIZE = 200;
+const PAGE_SIZE = 300;
 
 const Movies = () => {
   const [channels, setChannels] = useState<Channel[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
-  const [totalCount, setTotalCount] = useState(0);
   const [currentVideo, setCurrentVideo] = useState<{ src: string; title: string; poster?: string } | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<string>('Todos');
   const [showAdultGate, setShowAdultGate] = useState(false);
@@ -71,8 +70,8 @@ const Movies = () => {
     fetchCategories();
   }, []);
 
-  // Fetch channels with pagination
-  const fetchChannels = useCallback(async (reset = false) => {
+  // Fetch channels
+  const fetchChannels = useCallback(async (reset = false, currentLength = 0) => {
     if (reset) {
       setLoading(true);
       setChannels([]);
@@ -80,7 +79,7 @@ const Movies = () => {
       setLoadingMore(true);
     }
 
-    const from = reset ? 0 : channels.length;
+    const from = reset ? 0 : currentLength;
 
     let query = supabase
       .from('channels')
@@ -97,8 +96,13 @@ const Movies = () => {
 
     if (error) {
       console.error('Error fetching channels:', error);
-    } else if (data) {
-      // Filter for film categories
+      setLoading(false);
+      setLoadingMore(false);
+      return;
+    }
+    
+    if (data) {
+      // Filter for film categories first
       let filteredData = data.filter(c => isFilmCategory(c.category));
       
       // Filter by selected category
@@ -112,7 +116,6 @@ const Movies = () => {
 
       if (reset) {
         setChannels(filteredData);
-        setTotalCount(filteredData.length);
       } else {
         setChannels(prev => [...prev, ...filteredData]);
       }
@@ -121,12 +124,12 @@ const Movies = () => {
 
     setLoading(false);
     setLoadingMore(false);
-  }, [channels.length, selectedCategory, debouncedSearch]);
-
-  // Initial fetch and refetch on category/search change
-  useEffect(() => {
-    fetchChannels(true);
   }, [selectedCategory, debouncedSearch]);
+
+  // Initial fetch
+  useEffect(() => {
+    fetchChannels(true, 0);
+  }, [fetchChannels]);
 
   // Scroll handler for infinite scroll
   const handleScroll = useCallback(() => {
@@ -137,7 +140,10 @@ const Movies = () => {
     const documentHeight = document.documentElement.scrollHeight;
 
     if (scrollTop + windowHeight >= documentHeight - 500) {
-      fetchChannels(false);
+      setChannels(prev => {
+        fetchChannels(false, prev.length);
+        return prev;
+      });
     }
   }, [loadingMore, hasMore, fetchChannels]);
 

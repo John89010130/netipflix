@@ -31,12 +31,7 @@ const isFilmCategory = (category: string): boolean => {
 // Helper to check if category is series-related
 const isSeriesCategory = (category: string): boolean => {
   const lower = category.toLowerCase();
-  return lower.includes('serie') || lower.includes('netflix') || lower.includes('talk') || lower.includes('reality');
-};
-
-// Helper to check if category is TV-related (not film, not series)
-const isTVCategory = (category: string): boolean => {
-  return !isFilmCategory(category) && !isSeriesCategory(category);
+  return lower.includes('serie') || lower.includes('netflix');
 };
 
 const Index = () => {
@@ -50,22 +45,35 @@ const Index = () => {
 
   useEffect(() => {
     const fetchAllChannels = async () => {
+      setLoading(true);
+      
       const { data, error } = await supabase
         .from('channels')
         .select('*')
         .eq('active', true)
         .order('name')
-        .limit(500);
+        .limit(1000);
 
-      if (!error && data) {
+      if (error) {
+        console.error('Error fetching channels:', error);
+        setLoading(false);
+        return;
+      }
+
+      if (data) {
         // Filter out adult content
         const safeChannels = data.filter(c => !isAdultCategory(c.category));
         
         // Separate by type
-        setTVChannels(safeChannels.filter(c => isTVCategory(c.category)).slice(0, 50));
-        setFilmChannels(safeChannels.filter(c => isFilmCategory(c.category)).slice(0, 50));
-        setSeriesChannels(safeChannels.filter(c => isSeriesCategory(c.category)).slice(0, 50));
+        const films = safeChannels.filter(c => isFilmCategory(c.category));
+        const series = safeChannels.filter(c => isSeriesCategory(c.category));
+        const tv = safeChannels.filter(c => !isFilmCategory(c.category) && !isSeriesCategory(c.category));
+        
+        setFilmChannels(films.slice(0, 50));
+        setSeriesChannels(series.slice(0, 50));
+        setTVChannels(tv.slice(0, 50));
       }
+      
       setLoading(false);
     };
 
@@ -87,7 +95,7 @@ const Index = () => {
     });
   };
 
-  const scrollContainer = (ref: React.RefObject<HTMLDivElement>, direction: 'left' | 'right') => {
+  const scrollContainer = (ref: React.RefObject<HTMLDivElement | null>, direction: 'left' | 'right') => {
     if (ref.current) {
       const scrollAmount = 300;
       ref.current.scrollBy({

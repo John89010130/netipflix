@@ -1,12 +1,12 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Navbar } from '@/components/Navbar';
-import { ContentCarousel } from '@/components/ContentCarousel';
+import { ContentCard } from '@/components/ContentCard';
 import { VideoPlayer } from '@/components/VideoPlayer';
+import { AdultContentGate, isAdultCategory, isAdultContentVerified } from '@/components/AdultContentGate';
 import { supabase } from '@/integrations/supabase/client';
 import { ContentItem } from '@/types';
 import { Skeleton } from '@/components/ui/skeleton';
-import { isAdultCategory } from '@/components/AdultContentGate';
-import { Search, X, Loader2 } from 'lucide-react';
+import { Loader2, Search, X } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 
 interface Channel {
@@ -22,21 +22,24 @@ interface Channel {
 // Helper to check if category is series-related
 const isSeriesCategory = (category: string): boolean => {
   const lower = category.toLowerCase();
-  return lower.includes('serie') || lower.includes('netflix') || lower.includes('talk') || lower.includes('reality');
+  return lower.includes('serie') || lower.includes('netflix');
 };
 
-const PAGE_SIZE = 200;
+const PAGE_SIZE = 300;
 
 const Series = () => {
-  const [currentVideo, setCurrentVideo] = useState<{ src: string; title: string; poster?: string } | null>(null);
-  const [seriesChannels, setSeriesChannels] = useState<Channel[]>([]);
+  const [channels, setChannels] = useState<Channel[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
+  const [currentVideo, setCurrentVideo] = useState<{ src: string; title: string; poster?: string } | null>(null);
+  const [selectedCategory, setSelectedCategory] = useState<string>('Todos');
+  const [showAdultGate, setShowAdultGate] = useState(false);
+  const [pendingAdultCategory, setPendingAdultCategory] = useState<string | null>(null);
+  const [categories, setCategories] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState<string>('Todos');
-  const [categories, setCategories] = useState<string[]>([]);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   // Debounce search
   useEffect(() => {
@@ -55,26 +58,28 @@ const Series = () => {
         .eq('active', true);
 
       if (!error && data) {
-        const uniqueCategories = [...new Set(data.map(c => c.category))]
-          .filter(c => isSeriesCategory(c) && !isAdultCategory(c))
+        const seriesCategories = [...new Set(data.map(c => c.category))]
+          .filter(c => isSeriesCategory(c))
           .sort();
-        setCategories(['Todos', ...uniqueCategories]);
+        const regularCategories = seriesCategories.filter(c => !isAdultCategory(c));
+        const adultCategories = seriesCategories.filter(c => isAdultCategory(c));
+        setCategories(['Todos', ...regularCategories, ...(adultCategories.length > 0 ? ['🔞 Adulto'] : [])]);
       }
     };
 
     fetchCategories();
   }, []);
 
-  // Fetch series
-  const fetchSeries = useCallback(async (reset = false) => {
+  // Fetch channels
+  const fetchChannels = useCallback(async (reset = false, currentLength = 0) => {
     if (reset) {
       setLoading(true);
-      setSeriesChannels([]);
+      setChannels([]);
     } else {
       setLoadingMore(true);
     }
 
-    const from = reset ? 0 : seriesChannels.length;
+    const from = reset ? 0 : currentLength;
 
     let query = supabase
       .from('channels')
@@ -90,31 +95,41 @@ const Series = () => {
     const { data, error } = await query;
 
     if (error) {
-      console.error('Error fetching series:', error);
-    } else if (data) {
-      // Filter for series and non-adult
-      let filtered = data.filter(c => isSeriesCategory(c.category) && !isAdultCategory(c.category));
+      console.error('Error fetching channels:', error);
+      setLoading(false);
+      setLoadingMore(false);
+      return;
+    }
+    
+    if (data) {
+      // Filter for series categories first
+      let filteredData = data.filter(c => isSeriesCategory(c.category));
       
-      if (selectedCategory !== 'Todos') {
-        filtered = filtered.filter(c => c.category === selectedCategory);
+      // Filter by selected category
+      if (selectedCategory === 'Todos') {
+        filteredData = filteredData.filter(c => !isAdultCategory(c.category));
+      } else if (selectedCategory === '🔞 Adulto') {
+        filteredData = filteredData.filter(c => isAdultCategory(c.category));
+      } else {
+        filteredData = filteredData.filter(c => c.category === selectedCategory);
       }
 
       if (reset) {
-        setSeriesChannels(filtered);
+        setChannels(filteredData);
       } else {
-        setSeriesChannels(prev => [...prev, ...filtered]);
+        setChannels(prev => [...prev, ...filteredData]);
       }
       setHasMore(data.length === PAGE_SIZE);
     }
 
     setLoading(false);
     setLoadingMore(false);
-  }, [seriesChannels.length, selectedCategory, debouncedSearch]);
-
-  // Initial fetch and refetch on filter change
-  useEffect(() => {
-    fetchSeries(true);
   }, [selectedCategory, debouncedSearch]);
+
+  // Initial fetch
+  useEffect(() => {
+    fetchChannels(true, 0);
+  }, [fetchChannels]);
 
   // Scroll handler for infinite scroll
   const handleScroll = useCallback(() => {
@@ -125,14 +140,38 @@ const Series = () => {
     const documentHeight = document.documentElement.scrollHeight;
 
     if (scrollTop + windowHeight >= documentHeight - 500) {
-      fetchSeries(false);
+      setChannels(prev => {
+        fetchChannels(false, prev.length);
+        return prev;
+      });
     }
-  }, [loadingMore, hasMore, fetchSeries]);
+  }, [loadingMore, hasMore, fetchChannels]);
 
   useEffect(() => {
     window.addEventListener('scroll', handleScroll);
     return () => window.removeEventListener('scroll', handleScroll);
   }, [handleScroll]);
+
+  const handleCategoryClick = (category: string) => {
+    if (category === '🔞 Adulto') {
+      if (isAdultContentVerified()) {
+        setSelectedCategory(category);
+      } else {
+        setPendingAdultCategory(category);
+        setShowAdultGate(true);
+      }
+    } else {
+      setSelectedCategory(category);
+    }
+  };
+
+  const handleAdultGateSuccess = () => {
+    setShowAdultGate(false);
+    if (pendingAdultCategory) {
+      setSelectedCategory(pendingAdultCategory);
+      setPendingAdultCategory(null);
+    }
+  };
 
   const handlePlay = (item: ContentItem) => {
     setCurrentVideo({
@@ -142,25 +181,8 @@ const Series = () => {
     });
   };
 
-  // Convert to ContentItem
-  const seriesAsContent: ContentItem[] = seriesChannels.map(channel => ({
-    id: channel.id,
-    title: channel.name,
-    poster_url: channel.logo_url || undefined,
-    category: channel.category,
-    type: 'TV' as const,
-    stream_url: channel.stream_url,
-  }));
-
-  // Group by category for display
-  const seriesCategories = [...new Set(seriesChannels.map(c => c.category))];
-  const seriesByCategory = seriesCategories.reduce((acc, category) => {
-    acc[category] = seriesAsContent.filter(s => s.category === category);
-    return acc;
-  }, {} as Record<string, ContentItem[]>);
-
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-background" ref={containerRef}>
       <Navbar />
 
       <main className="pt-24 px-4 md:px-12 pb-16">
@@ -168,7 +190,7 @@ const Series = () => {
         <div className="mb-8">
           <h1 className="font-display text-4xl md:text-5xl tracking-wide mb-4">Séries</h1>
           <p className="text-muted-foreground">
-            {loading ? 'Carregando...' : `${seriesChannels.length} séries disponíveis`}
+            {loading ? 'Carregando...' : `${channels.length} séries disponíveis`}
           </p>
         </div>
 
@@ -194,59 +216,57 @@ const Series = () => {
 
         {/* Category Filter */}
         <div className="flex gap-2 mb-8 overflow-x-auto scrollbar-hide pb-2">
-          {categories.map((category) => (
-            <button
-              key={category}
-              onClick={() => setSelectedCategory(category)}
-              className={`px-4 py-2 rounded-full text-sm font-medium transition-all whitespace-nowrap ${
-                selectedCategory === category
-                  ? 'bg-primary text-primary-foreground'
-                  : 'bg-secondary text-secondary-foreground hover:bg-secondary/80'
-              }`}
-            >
-              {category}
-            </button>
-          ))}
+          {loading && categories.length === 0 ? (
+            Array.from({ length: 6 }).map((_, i) => (
+              <Skeleton key={i} className="h-10 w-24 rounded-full flex-shrink-0" />
+            ))
+          ) : (
+            categories.map((category) => (
+              <button
+                key={category}
+                onClick={() => handleCategoryClick(category)}
+                className={`px-4 py-2 rounded-full text-sm font-medium transition-all whitespace-nowrap ${
+                  selectedCategory === category
+                    ? 'bg-primary text-primary-foreground'
+                    : 'bg-secondary text-secondary-foreground hover:bg-secondary/80'
+                }`}
+              >
+                {category}
+              </button>
+            ))
+          )}
         </div>
 
-        {/* Content */}
+        {/* Series Grid */}
         {loading ? (
-          <div className="space-y-8">
-            {Array.from({ length: 3 }).map((_, i) => (
-              <div key={i} className="space-y-4">
-                <Skeleton className="h-8 w-48" />
-                <div className="flex gap-4 overflow-hidden">
-                  {Array.from({ length: 6 }).map((_, j) => (
-                    <Skeleton key={j} className="aspect-video w-48 flex-shrink-0 rounded-lg" />
-                  ))}
-                </div>
-              </div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+            {Array.from({ length: 12 }).map((_, i) => (
+              <Skeleton key={i} className="aspect-[2/3] rounded-lg" />
             ))}
           </div>
-        ) : seriesAsContent.length > 0 ? (
-          <div className="space-y-8">
-            {selectedCategory === 'Todos' ? (
-              // Show by category
-              seriesCategories.map((category) => (
-                seriesByCategory[category]?.length > 0 && (
-                  <ContentCarousel
-                    key={category}
-                    title={category}
-                    items={seriesByCategory[category]}
+        ) : (
+          <>
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+              {channels.map((channel) => {
+                const item: ContentItem = {
+                  id: channel.id,
+                  title: channel.name,
+                  poster_url: channel.logo_url || undefined,
+                  category: channel.category,
+                  type: 'TV',
+                  stream_url: channel.stream_url,
+                };
+                return (
+                  <ContentCard
+                    key={channel.id}
+                    item={item}
                     onPlay={handlePlay}
                   />
-                )
-              ))
-            ) : (
-              // Show all in selected category
-              <ContentCarousel
-                title={selectedCategory}
-                items={seriesAsContent}
-                onPlay={handlePlay}
-              />
-            )}
+                );
+              })}
+            </div>
 
-            {/* Loading more */}
+            {/* Loading more indicator */}
             {loadingMore && (
               <div className="flex justify-center py-8">
                 <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -254,15 +274,17 @@ const Series = () => {
             )}
 
             {/* End of list */}
-            {!hasMore && seriesChannels.length > 0 && (
+            {!hasMore && channels.length > 0 && (
               <p className="text-center text-muted-foreground py-8">
-                Todas as {seriesChannels.length} séries carregadas
+                Todas as {channels.length} séries carregadas
               </p>
             )}
-          </div>
-        ) : (
+          </>
+        )}
+
+        {!loading && channels.length === 0 && (
           <div className="text-center py-16">
-            <p className="text-muted-foreground">Nenhuma série encontrada.</p>
+            <p className="text-muted-foreground">Nenhuma série encontrada nesta categoria.</p>
           </div>
         )}
       </main>
@@ -276,6 +298,16 @@ const Series = () => {
           onClose={() => setCurrentVideo(null)}
         />
       )}
+
+      {/* Adult Content Gate */}
+      <AdultContentGate
+        isOpen={showAdultGate}
+        onClose={() => {
+          setShowAdultGate(false);
+          setPendingAdultCategory(null);
+        }}
+        onSuccess={handleAdultGateSuccess}
+      />
     </div>
   );
 };
