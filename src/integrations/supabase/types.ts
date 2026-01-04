@@ -74,6 +74,30 @@ export type Database = {
         }
         Relationships: []
       }
+      m3u_links: {
+        Row: {
+          channels_imported: number | null
+          id: string
+          imported_at: string
+          imported_by: string | null
+          url: string
+        }
+        Insert: {
+          channels_imported?: number | null
+          id?: string
+          imported_at?: string
+          imported_by?: string | null
+          url: string
+        }
+        Update: {
+          channels_imported?: number | null
+          id?: string
+          imported_at?: string
+          imported_by?: string | null
+          url?: string
+        }
+        Relationships: []
+      }
       movies: {
         Row: {
           active: boolean
