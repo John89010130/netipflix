@@ -28,7 +28,7 @@ serve(async (req) => {
     let decodedUrl = decodeURIComponent(streamUrl);
     
     // Check for recursive/double proxying - extract original URL if proxied URL was passed
-    if (decodedUrl.includes('/functions/v1/stream-proxy')) {
+    if (decodedUrl.includes('/functions/v1/stream-proxy') || decodedUrl.includes('/stream-proxy?url=')) {
       try {
         const nestedUrl = new URL(decodedUrl);
         const nestedStreamUrl = nestedUrl.searchParams.get('url');
@@ -67,31 +67,118 @@ serve(async (req) => {
     }
 
     // Get content type from response or infer from URL
-    let contentType = response.headers.get('content-type') || 'application/octet-stream';
-    
-    if (decodedUrl.includes('.m3u8')) {
+    const headerContentType = response.headers.get('content-type') || '';
+    let contentType = headerContentType || 'application/octet-stream';
+
+    const finalUrl = response.url || decodedUrl;
+    const isM3u8ByUrl = decodedUrl.includes('.m3u8') || finalUrl.includes('.m3u8');
+    const isM3u8ByHeader = /mpegurl/i.test(headerContentType);
+
+    // Some providers serve HLS playlists without a .m3u8 suffix and with a generic content-type.
+    // We sniff the first chunk to detect "#EXTM3U" and rewrite the playlist URLs when needed.
+    let playlistText: string | null = null;
+
+    if (isM3u8ByUrl || isM3u8ByHeader) {
+      playlistText = await response.text();
       contentType = 'application/vnd.apple.mpegurl';
-    } else if (decodedUrl.includes('.ts')) {
-      contentType = 'video/mp2t';
+    } else if (
+      response.body &&
+      (!headerContentType || headerContentType.includes('text') || headerContentType.includes('application/octet-stream'))
+    ) {
+      const reader = response.body.getReader();
+      const first = await reader.read();
+
+      const firstBytes = first.value ?? new Uint8Array();
+      const firstText = new TextDecoder().decode(firstBytes);
+      const looksLikePlaylist = firstText.trimStart().startsWith('#EXTM3U') || firstText.includes('#EXT-X-');
+
+      if (looksLikePlaylist) {
+        let text = firstText;
+        while (true) {
+          const r = await reader.read();
+          if (r.done) break;
+          text += new TextDecoder().decode(r.value);
+        }
+        playlistText = text;
+        contentType = 'application/vnd.apple.mpegurl';
+      } else {
+        // Not a playlist: stream back the original bytes (including the first chunk we already read)
+        if (decodedUrl.includes('.ts')) {
+          contentType = 'video/mp2t';
+        }
+
+        const responseHeaders: HeadersInit = {
+          ...corsHeaders,
+          'Content-Type': contentType,
+        };
+
+        const contentLength = response.headers.get('content-length');
+        if (contentLength) {
+          responseHeaders['Content-Length'] = contentLength;
+        }
+
+        const contentRange = response.headers.get('content-range');
+        if (contentRange) {
+          responseHeaders['Content-Range'] = contentRange;
+        }
+
+        const acceptRanges = response.headers.get('accept-ranges');
+        if (acceptRanges) {
+          responseHeaders['Accept-Ranges'] = acceptRanges;
+        }
+
+        const stream = new ReadableStream<Uint8Array>({
+          start(controller) {
+            if (!first.done) controller.enqueue(firstBytes);
+
+            const pump = (): void => {
+              reader.read().then(({ done, value }) => {
+                if (done) {
+                  controller.close();
+                  return;
+                }
+                controller.enqueue(value!);
+                pump();
+              }).catch((err) => {
+                console.error('Proxy stream error:', err);
+                controller.error(err);
+              });
+            };
+
+            pump();
+          },
+          cancel(reason) {
+            try {
+              reader.cancel(reason);
+            } catch {
+              // ignore
+            }
+          },
+        });
+
+        return new Response(stream, {
+          status: response.status,
+          headers: responseHeaders,
+        });
+      }
     }
 
     // For m3u8 playlists, we need to rewrite the URLs inside to also go through the proxy
-    if (contentType.includes('mpegurl') || decodedUrl.includes('.m3u8')) {
-      const text = await response.text();
-      const baseUrl = decodedUrl.substring(0, decodedUrl.lastIndexOf('/') + 1);
-      
-      // CRITICAL FIX: Use the full path including /functions/v1/ 
+    if (playlistText !== null) {
+      const baseUrl = finalUrl.substring(0, finalUrl.lastIndexOf('/') + 1);
+
+      // CRITICAL FIX: Use the full path including /functions/v1/
       // The url.pathname only contains '/stream-proxy', not the full edge function path
       // We need to use the correct public endpoint path
       const proxyOrigin = url.origin.replace('http://', 'https://');
       const proxyBaseUrl = `${proxyOrigin}/functions/v1/stream-proxy?url=`;
-      
+
       console.log('Rewriting m3u8 playlist, proxy base URL:', proxyBaseUrl);
-      
+
       // Rewrite relative URLs in the playlist to go through our proxy
-      const rewrittenText = text.split('\n').map(line => {
+      const rewrittenText = playlistText.split('\n').map(line => {
         const trimmedLine = line.trim();
-        
+
         // Handle EXT-X-KEY with URI (encryption keys)
         if (trimmedLine.includes('URI="')) {
           return trimmedLine.replace(/URI="([^"]+)"/g, (_match, uri) => {
@@ -101,17 +188,17 @@ serve(async (req) => {
             return `URI="${proxyBaseUrl}${encodeURIComponent(baseUrl + uri)}"`;
           });
         }
-        
+
         // Skip empty lines and comment lines
         if (!trimmedLine || trimmedLine.startsWith('#')) {
           return line;
         }
-        
+
         // If it's an absolute URL
         if (trimmedLine.startsWith('http://') || trimmedLine.startsWith('https://')) {
           return proxyBaseUrl + encodeURIComponent(trimmedLine);
         }
-        
+
         // Relative URL - make it absolute and proxy it
         return proxyBaseUrl + encodeURIComponent(baseUrl + trimmedLine);
       }).join('\n');
@@ -128,7 +215,7 @@ serve(async (req) => {
       });
     }
 
-    // For binary content (ts segments), stream directly
+    // For binary content, stream directly
     const responseHeaders: HeadersInit = {
       ...corsHeaders,
       'Content-Type': contentType,

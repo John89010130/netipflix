@@ -27,7 +27,11 @@ const getProxiedUrl = (url: string): string => {
   }
   
   // Check if URL is already proxied (to avoid double-proxying)
-  if (url.includes('/functions/v1/stream-proxy')) {
+  if (
+    url.includes('/functions/v1/stream-proxy') ||
+    url.includes('.supabase.co/stream-proxy') ||
+    url.includes('/stream-proxy?url=')
+  ) {
     return url;
   }
   
@@ -91,87 +95,104 @@ export const VideoPlayer = ({ src, title, poster, onClose, autoPlay = true }: Vi
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
-    
+
     setError(null);
     setIsLoading(true);
 
-    // Use proxy for HTTP URLs to avoid mixed content issues
     const streamUrl = getProxiedUrl(src);
 
-    if (Hls.isSupported() && src.includes('.m3u8')) {
+    const getUnderlyingUrl = (maybeProxied: string) => {
+      try {
+        const parsed = new URL(maybeProxied);
+        if (parsed.pathname.includes('/functions/v1/stream-proxy')) {
+          const u = parsed.searchParams.get('url');
+          if (u) return decodeURIComponent(u);
+        }
+      } catch {
+        // ignore
+      }
+      return maybeProxied;
+    };
+
+    const underlyingUrl = getUnderlyingUrl(streamUrl);
+    const looksLikeHls = /\.m3u8(\?|$)/i.test(underlyingUrl);
+    const looksLikeDirectFile = /\.(mp4|webm|ogg|mov|mkv|avi|mpd)(\?|$)/i.test(underlyingUrl);
+
+    // When we are proxying an URL that doesn't look like a direct file, try HLS first.
+    // This covers many IPTV endpoints that serve an HLS playlist without a .m3u8 suffix.
+    const shouldTryHls =
+      Hls.isSupported() &&
+      (looksLikeHls || (streamUrl.includes('/functions/v1/stream-proxy') && !looksLikeDirectFile));
+
+    const setNativeSource = () => {
+      video.src = streamUrl;
+
+      const onLoaded = () => setIsLoading(false);
+      const onErr = () => {
+        setIsLoading(false);
+        setError(
+          'Não foi possível reproduzir este stream no navegador. Alguns links funcionam no VLC, mas não são compatíveis com players web.'
+        );
+      };
+
+      video.addEventListener('loadeddata', onLoaded, { once: true });
+      video.addEventListener('error', onErr, { once: true });
+
+      if (autoPlay) video.play().catch(() => setIsPlaying(false));
+    };
+
+    if (shouldTryHls) {
       const hls = new Hls({
         enableWorker: true,
         lowLatencyMode: false,
         xhrSetup: (xhr) => {
           xhr.timeout = 30000;
-        }
+        },
       });
-      
+
       hls.loadSource(streamUrl);
       hls.attachMedia(video);
-      
+
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
         setIsLoading(false);
         if (autoPlay) video.play().catch(() => setIsPlaying(false));
       });
-      
-      hls.on(Hls.Events.ERROR, (event, data) => {
+
+      hls.on(Hls.Events.ERROR, (_event, data) => {
         console.error('HLS Error:', data);
-        
+
         // Track fragment load errors
         if (data.details === 'fragLoadError') {
-          setFragmentErrors(prev => {
+          setFragmentErrors((prev) => {
             const newCount = prev + 1;
-            // After 3 fragment errors, show a warning
             if (newCount === 3) {
               toast.warning('Dificuldade ao carregar segmentos do stream...');
             }
             return newCount;
           });
         }
-        
-        if (data.fatal) {
-          setIsLoading(false);
-          switch (data.type) {
-            case Hls.ErrorTypes.NETWORK_ERROR:
-              if (data.details === 'fragLoadError') {
-                setError('Não foi possível carregar os segmentos do stream. O servidor pode estar bloqueando o acesso ou o stream está offline.');
-              } else {
-                setError('Erro de rede ao carregar o stream. O servidor pode estar offline ou inacessível.');
-              }
-              break;
-            case Hls.ErrorTypes.MEDIA_ERROR:
-              setError('Erro de mídia. O formato do stream pode não ser compatível.');
-              hls.recoverMediaError();
-              break;
-            default:
-              setError('Não foi possível reproduzir este stream. Ele pode estar offline.');
-              break;
-          }
-        }
+
+        if (!data.fatal) return;
+
+        // If HLS fails fatally, try native playback as a fallback.
+        // This helps when the URL is an MP4/file but got routed through the HLS path.
+        hls.destroy();
+        setNativeSource();
       });
 
       return () => {
         hls.destroy();
       };
-    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-      video.src = streamUrl;
-      video.addEventListener('loadeddata', () => setIsLoading(false));
-      video.addEventListener('error', () => {
-        setIsLoading(false);
-        setError('Não foi possível carregar o vídeo.');
-      });
-      if (autoPlay) video.play().catch(() => setIsPlaying(false));
-    } else {
-      // Try direct source for non-HLS
-      video.src = streamUrl;
-      video.addEventListener('loadeddata', () => setIsLoading(false));
-      video.addEventListener('error', () => {
-        setIsLoading(false);
-        setError('Formato de vídeo não suportado pelo navegador.');
-      });
-      if (autoPlay) video.play().catch(() => setIsPlaying(false));
     }
+
+    // Native HLS (Safari). Only attempt when it looks like an HLS playlist.
+    if (looksLikeHls && video.canPlayType('application/vnd.apple.mpegurl')) {
+      setNativeSource();
+      return;
+    }
+
+    // Non-HLS: try native playback.
+    setNativeSource();
   }, [src, autoPlay]);
 
   useEffect(() => {
