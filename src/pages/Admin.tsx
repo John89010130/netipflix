@@ -99,17 +99,36 @@ const Admin = () => {
 
   const fetchChannels = async () => {
     setLoadingChannels(true);
-    const { data, error } = await supabase
-      .from('channels')
-      .select('*')
-      .order('name');
     
-    if (error) {
-      toast.error('Erro ao carregar canais');
-      console.error(error);
-    } else {
-      setChannels(data || []);
+    // Fetch all channels without the default 1000 limit
+    const allChannels: Channel[] = [];
+    let from = 0;
+    const batchSize = 1000;
+    let hasMore = true;
+    
+    while (hasMore) {
+      const { data, error } = await supabase
+        .from('channels')
+        .select('*')
+        .order('name')
+        .range(from, from + batchSize - 1);
+      
+      if (error) {
+        toast.error('Erro ao carregar canais');
+        console.error(error);
+        break;
+      }
+      
+      if (data && data.length > 0) {
+        allChannels.push(...data);
+        from += batchSize;
+        hasMore = data.length === batchSize;
+      } else {
+        hasMore = false;
+      }
     }
+    
+    setChannels(allChannels);
     setLoadingChannels(false);
   };
 
@@ -163,6 +182,36 @@ const Admin = () => {
     return trimmedUrl;
   };
 
+  // Fetch all existing stream URLs without limit
+  const fetchAllStreamUrls = async (): Promise<Set<string>> => {
+    const allUrls: string[] = [];
+    let from = 0;
+    const batchSize = 1000;
+    let hasMore = true;
+    
+    while (hasMore) {
+      const { data, error } = await supabase
+        .from('channels')
+        .select('stream_url')
+        .range(from, from + batchSize - 1);
+      
+      if (error) {
+        console.error('Error fetching stream URLs:', error);
+        break;
+      }
+      
+      if (data && data.length > 0) {
+        allUrls.push(...data.map(c => c.stream_url));
+        from += batchSize;
+        hasMore = data.length === batchSize;
+      } else {
+        hasMore = false;
+      }
+    }
+    
+    return new Set(allUrls);
+  };
+
   const importFromUrl = async (url: string) => {
     setImporting(true);
     
@@ -185,12 +234,8 @@ const Admin = () => {
         return 0;
       }
 
-      // Get existing stream URLs to avoid duplicates
-      const { data: existingChannels } = await supabase
-        .from('channels')
-        .select('stream_url');
-      
-      const existingUrls = new Set(existingChannels?.map(c => c.stream_url) || []);
+      // Get all existing stream URLs to avoid duplicates
+      const existingUrls = await fetchAllStreamUrls();
       
       // Filter out duplicates
       const newChannels = parsedChannels.filter(c => !existingUrls.has(c.stream_url));
@@ -247,12 +292,8 @@ const Admin = () => {
           return;
         }
 
-        // Get existing stream URLs to avoid duplicates
-        const { data: existingChannels } = await supabase
-          .from('channels')
-          .select('stream_url');
-        
-        const existingUrls = new Set(existingChannels?.map(c => c.stream_url) || []);
+        // Get all existing stream URLs to avoid duplicates
+        const existingUrls = await fetchAllStreamUrls();
         const newChannels = parsedChannels.filter(c => !existingUrls.has(c.stream_url));
         
         if (newChannels.length === 0) {
