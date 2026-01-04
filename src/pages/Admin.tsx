@@ -425,7 +425,7 @@ const Admin = () => {
               offlineCount++;
             }
 
-            // Update channel's last_tested_at and last_test_status in database
+            // Update channel's last_tested_at, last_test_status, and active status in database
             const channel = channelsNeedingTest.find(c => c.stream_url === result.url);
             if (channel) {
               await supabase
@@ -433,6 +433,7 @@ const Admin = () => {
                 .update({
                   last_tested_at: new Date().toISOString(),
                   last_test_status: result.status,
+                  active: result.status === 'online', // Set active based on test result
                 })
                 .eq('id', channel.id);
             }
