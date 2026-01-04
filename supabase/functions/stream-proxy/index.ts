@@ -4,7 +4,7 @@ const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, range',
   'Access-Control-Allow-Methods': 'GET, OPTIONS',
-  'Access-Control-Expose-Headers': 'Content-Length, Content-Range, Content-Type, Accept-Ranges',
+  'Access-Control-Expose-Headers': 'Content-Length, Content-Range, Content-Type, Accept-Ranges, X-Stream-Type',
 };
 
 serve(async (req) => {
@@ -43,9 +43,12 @@ serve(async (req) => {
     
     console.log('Proxying stream:', decodedUrl);
 
-    // Forward range header if present (for seeking)
+    // Forward headers for proper streaming
     const headers: HeadersInit = {
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      'Accept': '*/*',
+      'Accept-Language': 'en-US,en;q=0.9',
+      'Connection': 'keep-alive',
     };
     
     const rangeHeader = req.headers.get('range');
@@ -69,10 +72,12 @@ serve(async (req) => {
     // Get content type from response or infer from URL
     const headerContentType = response.headers.get('content-type') || '';
     let contentType = headerContentType || 'application/octet-stream';
+    let detectedStreamType = 'unknown';
 
     const finalUrl = response.url || decodedUrl;
     const isM3u8ByUrl = decodedUrl.includes('.m3u8') || finalUrl.includes('.m3u8');
     const isM3u8ByHeader = /mpegurl/i.test(headerContentType);
+    const isTsByUrl = decodedUrl.includes('.ts') || finalUrl.includes('.ts');
 
     // Some providers serve HLS playlists without a .m3u8 suffix and with a generic content-type.
     // We sniff the first chunk to detect "#EXTM3U" and rewrite the playlist URLs when needed.
@@ -81,35 +86,84 @@ serve(async (req) => {
     if (isM3u8ByUrl || isM3u8ByHeader) {
       playlistText = await response.text();
       contentType = 'application/vnd.apple.mpegurl';
-    } else if (
-      response.body &&
-      (!headerContentType || headerContentType.includes('text') || headerContentType.includes('application/octet-stream'))
-    ) {
+      detectedStreamType = 'hls';
+    } else if (response.body) {
       const reader = response.body.getReader();
       const first = await reader.read();
 
       const firstBytes = first.value ?? new Uint8Array();
-      const firstText = new TextDecoder().decode(firstBytes);
-      const looksLikePlaylist = firstText.trimStart().startsWith('#EXTM3U') || firstText.includes('#EXT-X-');
-
-      if (looksLikePlaylist) {
-        let text = firstText;
-        while (true) {
-          const r = await reader.read();
-          if (r.done) break;
-          text += new TextDecoder().decode(r.value);
+      
+      // Try to detect stream type from first bytes
+      let isHlsPlaylist = false;
+      let isMpegTs = false;
+      
+      // Check for HLS playlist (text-based)
+      if (firstBytes.length > 0) {
+        const firstText = new TextDecoder().decode(firstBytes.slice(0, 512));
+        isHlsPlaylist = firstText.trimStart().startsWith('#EXTM3U') || firstText.includes('#EXT-X-');
+        
+        if (isHlsPlaylist) {
+          // Read the rest of the playlist
+          let text = new TextDecoder().decode(firstBytes);
+          while (true) {
+            const r = await reader.read();
+            if (r.done) break;
+            text += new TextDecoder().decode(r.value);
+          }
+          playlistText = text;
+          contentType = 'application/vnd.apple.mpegurl';
+          detectedStreamType = 'hls';
         }
-        playlistText = text;
-        contentType = 'application/vnd.apple.mpegurl';
-      } else {
-        // Not a playlist: stream back the original bytes (including the first chunk we already read)
-        if (decodedUrl.includes('.ts')) {
+      }
+
+      if (!isHlsPlaylist) {
+        // Check for MPEG-TS sync byte (0x47)
+        if (firstBytes.length > 0 && firstBytes[0] === 0x47) {
+          isMpegTs = true;
+          // Double check with second packet if we have enough data
+          if (firstBytes.length >= 188) {
+            isMpegTs = firstBytes[188] === 0x47;
+          }
+        }
+        
+        // Also check a few positions in case of padding
+        if (!isMpegTs && firstBytes.length >= 376) {
+          for (let i = 0; i < Math.min(firstBytes.length - 188, 1000); i++) {
+            if (firstBytes[i] === 0x47 && firstBytes[i + 188] === 0x47) {
+              isMpegTs = true;
+              break;
+            }
+          }
+        }
+
+        if (isMpegTs || isTsByUrl) {
           contentType = 'video/mp2t';
+          detectedStreamType = 'mpegts';
         }
 
+        // Check for FLV header
+        if (firstBytes.length >= 3 && 
+            firstBytes[0] === 0x46 && // F
+            firstBytes[1] === 0x4C && // L
+            firstBytes[2] === 0x56) { // V
+          contentType = 'video/x-flv';
+          detectedStreamType = 'flv';
+        }
+
+        // Check for MP4/ftyp
+        if (firstBytes.length >= 8) {
+          const ftypStr = String.fromCharCode(firstBytes[4], firstBytes[5], firstBytes[6], firstBytes[7]);
+          if (ftypStr === 'ftyp') {
+            contentType = 'video/mp4';
+            detectedStreamType = 'mp4';
+          }
+        }
+
+        // Not a playlist: stream back the original bytes (including the first chunk we already read)
         const responseHeaders: HeadersInit = {
           ...corsHeaders,
           'Content-Type': contentType,
+          'X-Stream-Type': detectedStreamType,
         };
 
         const contentLength = response.headers.get('content-length');
@@ -125,11 +179,17 @@ serve(async (req) => {
         const acceptRanges = response.headers.get('accept-ranges');
         if (acceptRanges) {
           responseHeaders['Accept-Ranges'] = acceptRanges;
+        } else {
+          // For live streams, indicate we don't support ranges
+          responseHeaders['Accept-Ranges'] = 'none';
         }
 
+        // Create a stream that first emits the bytes we already read, then continues with the rest
         const stream = new ReadableStream<Uint8Array>({
           start(controller) {
-            if (!first.done) controller.enqueue(firstBytes);
+            if (!first.done && firstBytes.length > 0) {
+              controller.enqueue(firstBytes);
+            }
 
             const pump = (): void => {
               reader.read().then(({ done, value }) => {
@@ -156,6 +216,8 @@ serve(async (req) => {
           },
         });
 
+        console.log('Streaming binary content, type:', detectedStreamType, 'content-type:', contentType);
+
         return new Response(stream, {
           status: response.status,
           headers: responseHeaders,
@@ -167,9 +229,7 @@ serve(async (req) => {
     if (playlistText !== null) {
       const baseUrl = finalUrl.substring(0, finalUrl.lastIndexOf('/') + 1);
 
-      // CRITICAL FIX: Use the full path including /functions/v1/
-      // The url.pathname only contains '/stream-proxy', not the full edge function path
-      // We need to use the correct public endpoint path
+      // Use the correct public endpoint path
       const proxyOrigin = url.origin.replace('http://', 'https://');
       const proxyBaseUrl = `${proxyOrigin}/functions/v1/stream-proxy?url=`;
 
@@ -210,6 +270,7 @@ serve(async (req) => {
         headers: {
           ...corsHeaders,
           'Content-Type': 'application/vnd.apple.mpegurl',
+          'X-Stream-Type': 'hls',
           'Cache-Control': 'no-cache',
         },
       });
@@ -219,6 +280,7 @@ serve(async (req) => {
     const responseHeaders: HeadersInit = {
       ...corsHeaders,
       'Content-Type': contentType,
+      'X-Stream-Type': detectedStreamType,
     };
 
     const contentLength = response.headers.get('content-length');
