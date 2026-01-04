@@ -64,6 +64,7 @@ const Admin = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [usedM3uLinks, setUsedM3uLinks] = useState<M3uLink[]>([]);
   const [loadingLinks, setLoadingLinks] = useState(true);
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
 
   useEffect(() => {
     if (isAdmin) {
@@ -540,7 +541,10 @@ const Admin = () => {
   const filteredChannels = channels.filter(channel => {
     const matchesCategory = selectedCategory === 'all' || channel.category === selectedCategory;
     const matchesSearch = channel.name.toLowerCase().includes(searchTerm.toLowerCase());
-    return matchesCategory && matchesSearch;
+    const matchesStatus = statusFilter === 'all' || 
+      (statusFilter === 'active' && channel.active) || 
+      (statusFilter === 'inactive' && !channel.active);
+    return matchesCategory && matchesSearch && matchesStatus;
   });
 
   const activeCount = channels.filter(c => c.active).length;
@@ -568,7 +572,10 @@ const Admin = () => {
 
           {/* Stats */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-            <Card>
+            <Card 
+              className={`cursor-pointer transition-all hover:ring-2 hover:ring-primary/50 ${statusFilter === 'all' ? 'ring-2 ring-primary' : ''}`}
+              onClick={() => setStatusFilter('all')}
+            >
               <CardContent className="pt-6">
                 <div className="flex items-center gap-3">
                   <Tv className="h-8 w-8 text-primary" />
@@ -579,7 +586,10 @@ const Admin = () => {
                 </div>
               </CardContent>
             </Card>
-            <Card>
+            <Card 
+              className={`cursor-pointer transition-all hover:ring-2 hover:ring-green-500/50 ${statusFilter === 'active' ? 'ring-2 ring-green-500' : ''}`}
+              onClick={() => setStatusFilter('active')}
+            >
               <CardContent className="pt-6">
                 <div className="flex items-center gap-3">
                   <CheckCircle className="h-8 w-8 text-green-500" />
@@ -590,7 +600,10 @@ const Admin = () => {
                 </div>
               </CardContent>
             </Card>
-            <Card>
+            <Card 
+              className={`cursor-pointer transition-all hover:ring-2 hover:ring-red-500/50 ${statusFilter === 'inactive' ? 'ring-2 ring-red-500' : ''}`}
+              onClick={() => setStatusFilter('inactive')}
+            >
               <CardContent className="pt-6">
                 <div className="flex items-center gap-3">
                   <XCircle className="h-8 w-8 text-red-500" />
