@@ -13,6 +13,18 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
+
+// Convert HTTP URLs to use our HTTPS proxy
+const getProxiedUrl = (url: string): string => {
+  // If it's already HTTPS or not HTTP, return as-is
+  if (!url.startsWith('http://')) {
+    return url;
+  }
+  // Use our edge function proxy
+  return `${SUPABASE_URL}/functions/v1/stream-proxy?url=${encodeURIComponent(url)}`;
+};
+
 interface VideoPlayerProps {
   src: string;
   title?: string;
@@ -43,25 +55,19 @@ export const VideoPlayer = ({ src, title, poster, onClose, autoPlay = true }: Vi
     setError(null);
     setIsLoading(true);
 
-    // Check for mixed content issues (HTTP on HTTPS page)
-    const isMixedContent = window.location.protocol === 'https:' && src.startsWith('http:');
-    
-    if (isMixedContent) {
-      setError('Este stream não pode ser reproduzido por restrições de segurança do navegador (HTTP em página HTTPS).');
-      setIsLoading(false);
-      return;
-    }
+    // Use proxy for HTTP URLs to avoid mixed content issues
+    const streamUrl = getProxiedUrl(src);
 
     if (Hls.isSupported() && src.includes('.m3u8')) {
       const hls = new Hls({
         enableWorker: true,
         lowLatencyMode: false,
         xhrSetup: (xhr) => {
-          xhr.timeout = 15000;
+          xhr.timeout = 30000;
         }
       });
       
-      hls.loadSource(src);
+      hls.loadSource(streamUrl);
       hls.attachMedia(video);
       
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
@@ -92,7 +98,7 @@ export const VideoPlayer = ({ src, title, poster, onClose, autoPlay = true }: Vi
         hls.destroy();
       };
     } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-      video.src = src;
+      video.src = streamUrl;
       video.addEventListener('loadeddata', () => setIsLoading(false));
       video.addEventListener('error', () => {
         setIsLoading(false);
@@ -101,7 +107,7 @@ export const VideoPlayer = ({ src, title, poster, onClose, autoPlay = true }: Vi
       if (autoPlay) video.play().catch(() => setIsPlaying(false));
     } else {
       // Try direct source for non-HLS
-      video.src = src;
+      video.src = streamUrl;
       video.addEventListener('loadeddata', () => setIsLoading(false));
       video.addEventListener('error', () => {
         setIsLoading(false);
