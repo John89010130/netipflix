@@ -257,6 +257,34 @@ const Admin = () => {
     }
   }, [loadMore]);
 
+  // Helper: Remove color tags like [COLOR orange]...[/COLOR]
+  const cleanColorTags = (text: string): string => {
+    return text
+      .replace(/\[COLOR[^\]]*\]/gi, '')
+      .replace(/\[\/COLOR\]/gi, '')
+      .trim();
+  };
+
+  // Helper: Check if URL is valid (not just protocol)
+  const isValidStreamUrl = (url: string): boolean => {
+    const trimmed = url.trim();
+    if (trimmed === 'http://' || trimmed === 'https://') return false;
+    if (!trimmed.match(/^https?:\/\/.+\..+/)) return false;
+    return true;
+  };
+
+  // Helper: Check if entry is a section header/separator
+  const isSectionHeader = (name: string): boolean => {
+    const cleaned = cleanColorTags(name);
+    if (!cleaned || cleaned.length === 0) return true;
+    // If name is wrapped in parentheses/brackets and is all caps, it's likely a separator
+    if (/^[\(\[\{]?[A-ZÁÉÍÓÚÀÂÊÔÃÕÇ\s]+[\)\]\}]?$/i.test(cleaned) && cleaned.length < 50) {
+      // Check if it looks like a title separator (all caps, short)
+      if (cleaned === cleaned.toUpperCase() && !cleaned.match(/\d/)) return true;
+    }
+    return false;
+  };
+
   const parseM3U = (content: string): Omit<Channel, 'id'>[] => {
     const lines = content.split('\n');
     const channels: Omit<Channel, 'id'>[] = [];
@@ -272,7 +300,19 @@ const Admin = () => {
         const subgroupMatch = line.match(/pltv-subgroup="([^"]+)"/);
         const nameMatch = line.match(/,(.+)$/);
 
-        let channelName = nameMatch?.[1]?.trim() || 'Canal Desconhecido';
+        const rawName = nameMatch?.[1]?.trim() || '';
+        const rawCategory = groupMatch?.[1] || 'Geral';
+        
+        // Clean color tags from name and category
+        let channelName = cleanColorTags(rawName);
+        const category = cleanColorTags(rawCategory);
+        
+        // Skip if no valid name after cleaning or if it's a section header
+        if (!channelName || isSectionHeader(channelName)) {
+          currentChannel = {};
+          continue;
+        }
+
         const subgroup = subgroupMatch?.[1]?.trim();
         
         // If there's a subgroup (series name) and the name looks like an episode pattern,
@@ -283,14 +323,17 @@ const Admin = () => {
 
         currentChannel = {
           logo_url: logoMatch?.[1] || null,
-          category: groupMatch?.[1] || 'Geral',
+          category: category || 'Geral',
           name: channelName,
           country: 'BR',
           active: true,
         };
       } else if (line.startsWith('http') && currentChannel.name) {
-        currentChannel.stream_url = line;
-        channels.push(currentChannel as Omit<Channel, 'id'>);
+        // Only add if URL is valid
+        if (isValidStreamUrl(line)) {
+          currentChannel.stream_url = line;
+          channels.push(currentChannel as Omit<Channel, 'id'>);
+        }
         currentChannel = {};
       }
     }
@@ -673,6 +716,90 @@ const Admin = () => {
     } catch (error) {
       console.error('Error deleting category:', error);
       toast.error('Erro ao deletar categoria');
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  // Delete all channels imported from a specific M3U link and reimport
+  const deleteAndReimportFromLink = async (linkUrl: string) => {
+    const confirmed = window.confirm(
+      `Isso vai DELETAR todos os canais deste link e reimportar com o parser atualizado.\n\n` +
+      `Link: ${linkUrl.substring(0, 80)}...\n\n` +
+      `Continuar?`
+    );
+    
+    if (!confirmed) return;
+    
+    setImporting(true);
+    
+    try {
+      // First, fetch the M3U content to get all stream URLs from this link
+      const rawUrl = convertToRawUrl(linkUrl);
+      const response = await fetch(`${SUPABASE_URL}/functions/v1/stream-proxy?url=${encodeURIComponent(rawUrl)}`);
+      
+      if (!response.ok) {
+        throw new Error(`Erro ao buscar M3U: ${response.status}`);
+      }
+      
+      const content = await response.text();
+      
+      // Parse without filtering to get all stream URLs (including invalid ones that were previously imported)
+      const lines = content.split('\n');
+      const streamUrls: string[] = [];
+      
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+          streamUrls.push(trimmed);
+        }
+      }
+      
+      if (streamUrls.length === 0) {
+        toast.error('Nenhuma URL encontrada no M3U');
+        return;
+      }
+      
+      // Delete channels with these stream URLs in batches
+      let deletedCount = 0;
+      const batchSize = 100;
+      
+      for (let i = 0; i < streamUrls.length; i += batchSize) {
+        const batch = streamUrls.slice(i, i + batchSize);
+        const { error, count } = await supabase
+          .from('channels')
+          .delete()
+          .in('stream_url', batch);
+        
+        if (!error && count) {
+          deletedCount += count;
+        }
+      }
+      
+      toast.success(`${deletedCount} canais deletados. Reimportando...`);
+      
+      // Now reimport with the improved parser
+      const inserted = await importFromUrl(linkUrl);
+      
+      if (inserted > 0) {
+        // Update the link record
+        await supabase
+          .from('m3u_links')
+          .update({ channels_imported: inserted, imported_at: new Date().toISOString() })
+          .eq('url', linkUrl);
+        
+        toast.success(`${inserted} canais reimportados com o parser corrigido!`);
+      } else {
+        toast.info('Nenhum canal novo importado.');
+      }
+      
+      fetchChannels(true);
+      fetchChannelCounts();
+      fetchM3uLinks();
+      fetchAllCategories();
+    } catch (error) {
+      console.error('Error deleting and reimporting:', error);
+      toast.error('Erro ao deletar e reimportar. Verifique se o link ainda está válido.');
     } finally {
       setImporting(false);
     }
@@ -1070,18 +1197,28 @@ const Admin = () => {
                                   minute: '2-digit'
                                 })}
                               </td>
-                              <td className="text-right py-3 px-2 space-x-2">
+                              <td className="text-right py-3 px-2 space-x-1">
                                 <Button
                                   size="sm"
                                   variant="outline"
                                   disabled={importing}
                                   onClick={() => handleReimport(link.url)}
+                                  title="Adicionar novos canais"
                                 >
                                   {importing ? (
                                     <Loader2 className="h-4 w-4 animate-spin" />
                                   ) : (
                                     <RefreshCw className="h-4 w-4" />
                                   )}
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="destructive"
+                                  disabled={importing}
+                                  onClick={() => deleteAndReimportFromLink(link.url)}
+                                  title="Deletar e reimportar todos"
+                                >
+                                  <Trash2 className="h-4 w-4" />
                                 </Button>
                                 <Button
                                   size="sm"
