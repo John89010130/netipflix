@@ -10,6 +10,7 @@ import Index from "./pages/Index";
 import Login from "./pages/Login";
 import TV from "./pages/TV";
 import Movies from "./pages/Movies";
+import Series from "./pages/Series";
 import MyList from "./pages/MyList";
 import Admin from "./pages/Admin";
 import NotFound from "./pages/NotFound";
@@ -47,6 +48,14 @@ const App = () => (
               element={
                 <ProtectedRoute>
                   <Movies />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/series"
+              element={
+                <ProtectedRoute>
+                  <Series />
                 </ProtectedRoute>
               }
             />

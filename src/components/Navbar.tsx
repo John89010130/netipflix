@@ -15,6 +15,7 @@ const navLinks = [
   { label: 'Início', href: '/' },
   { label: 'TV ao Vivo', href: '/tv' },
   { label: 'Filmes', href: '/movies' },
+  { label: 'Séries', href: '/series' },
   { label: 'Minha Lista', href: '/my-list' },
 ];
 

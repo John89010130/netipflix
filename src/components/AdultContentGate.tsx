@@ -22,7 +22,8 @@ export const isAdultCategory = (category: string): boolean => {
   return lowerCategory.includes('adulto') || 
          lowerCategory.includes('adult') || 
          lowerCategory.includes('+18') ||
-         lowerCategory.includes('xxx');
+         lowerCategory.includes('xxx') ||
+         lowerCategory === 'campur';
 };
 
 export const isAdultContentVerified = (): boolean => {
