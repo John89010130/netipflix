@@ -163,47 +163,49 @@ const Admin = () => {
     return trimmedUrl;
   };
 
-  const handleImportM3U = async () => {
-    if (!m3uContent.trim()) {
-      toast.error('Cole o conteúdo M3U ou uma URL');
-      return;
-    }
-
+  const importFromUrl = async (url: string) => {
     setImporting(true);
-    let importedUrl = '';
     
     try {
-      let content = m3uContent;
-
-      // If it's a URL, fetch it
-      if (m3uContent.trim().startsWith('http')) {
-        const rawUrl = convertToRawUrl(m3uContent.trim());
-        importedUrl = rawUrl;
-        console.log('Fetching M3U from:', rawUrl);
-        
-        // Use edge function as proxy to avoid CORS
-        const response = await fetch(`${SUPABASE_URL}/functions/v1/stream-proxy?url=${encodeURIComponent(rawUrl)}`);
-        
-        if (!response.ok) {
-          throw new Error(`Erro ao buscar M3U: ${response.status}`);
-        }
-        
-        content = await response.text();
+      const rawUrl = convertToRawUrl(url.trim());
+      console.log('Fetching M3U from:', rawUrl);
+      
+      // Use edge function as proxy to avoid CORS
+      const response = await fetch(`${SUPABASE_URL}/functions/v1/stream-proxy?url=${encodeURIComponent(rawUrl)}`);
+      
+      if (!response.ok) {
+        throw new Error(`Erro ao buscar M3U: ${response.status}`);
       }
-
+      
+      const content = await response.text();
       const parsedChannels = parseM3U(content);
       
       if (parsedChannels.length === 0) {
         toast.error('Nenhum canal encontrado no M3U. Verifique o formato.');
-        return;
+        return 0;
+      }
+
+      // Get existing stream URLs to avoid duplicates
+      const { data: existingChannels } = await supabase
+        .from('channels')
+        .select('stream_url');
+      
+      const existingUrls = new Set(existingChannels?.map(c => c.stream_url) || []);
+      
+      // Filter out duplicates
+      const newChannels = parsedChannels.filter(c => !existingUrls.has(c.stream_url));
+      
+      if (newChannels.length === 0) {
+        toast.info('Todos os canais já existem no banco.');
+        return 0;
       }
 
       // Insert in batches
       const batchSize = 50;
       let inserted = 0;
 
-      for (let i = 0; i < parsedChannels.length; i += batchSize) {
-        const batch = parsedChannels.slice(i, i + batchSize);
+      for (let i = 0; i < newChannels.length; i += batchSize) {
+        const batch = newChannels.slice(i, i + batchSize);
         const { error } = await supabase.from('channels').insert(batch);
         
         if (error) {
@@ -213,17 +215,104 @@ const Admin = () => {
         }
       }
 
+      return inserted;
+    } catch (error) {
+      console.error('Import error:', error);
+      throw error;
+    }
+  };
+
+  const handleImportM3U = async () => {
+    if (!m3uContent.trim()) {
+      toast.error('Cole o conteúdo M3U ou uma URL');
+      return;
+    }
+
+    setImporting(true);
+    
+    try {
+      let inserted = 0;
+      let importedUrl = '';
+
+      // If it's a URL, use importFromUrl
+      if (m3uContent.trim().startsWith('http')) {
+        importedUrl = convertToRawUrl(m3uContent.trim());
+        inserted = await importFromUrl(m3uContent.trim());
+      } else {
+        // Direct content paste
+        const parsedChannels = parseM3U(m3uContent);
+        
+        if (parsedChannels.length === 0) {
+          toast.error('Nenhum canal encontrado no M3U. Verifique o formato.');
+          return;
+        }
+
+        // Get existing stream URLs to avoid duplicates
+        const { data: existingChannels } = await supabase
+          .from('channels')
+          .select('stream_url');
+        
+        const existingUrls = new Set(existingChannels?.map(c => c.stream_url) || []);
+        const newChannels = parsedChannels.filter(c => !existingUrls.has(c.stream_url));
+        
+        if (newChannels.length === 0) {
+          toast.info('Todos os canais já existem no banco.');
+          return;
+        }
+
+        const batchSize = 50;
+        for (let i = 0; i < newChannels.length; i += batchSize) {
+          const batch = newChannels.slice(i, i + batchSize);
+          const { error } = await supabase.from('channels').insert(batch);
+          
+          if (error) {
+            console.error('Batch insert error:', error);
+          } else {
+            inserted += batch.length;
+          }
+        }
+      }
+
       // Save the M3U link to history if it was a URL
       if (importedUrl && inserted > 0) {
         await saveM3uLink(importedUrl, inserted);
       }
 
-      toast.success(`${inserted} canais importados com sucesso!`);
+      if (inserted > 0) {
+        toast.success(`${inserted} novos canais importados!`);
+      }
+      
       setM3uContent('');
       fetchChannels();
     } catch (error) {
       console.error('Import error:', error);
       toast.error('Erro ao importar M3U. Tente colar o conteúdo diretamente.');
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  const handleReimport = async (url: string) => {
+    setImporting(true);
+    try {
+      const inserted = await importFromUrl(url);
+      
+      if (inserted > 0) {
+        // Update the link record
+        await supabase
+          .from('m3u_links')
+          .update({ channels_imported: inserted, imported_at: new Date().toISOString() })
+          .eq('url', url);
+        
+        toast.success(`${inserted} novos canais importados!`);
+        fetchChannels();
+        fetchM3uLinks();
+      } else {
+        toast.info('Nenhum canal novo encontrado.');
+      }
+    } catch (error) {
+      console.error('Reimport error:', error);
+      toast.error('Erro ao reimportar. Verifique se a URL ainda está válida.');
     } finally {
       setImporting(false);
     }
@@ -697,7 +786,19 @@ const Admin = () => {
                                   minute: '2-digit'
                                 })}
                               </td>
-                              <td className="text-right py-3 px-2">
+                              <td className="text-right py-3 px-2 space-x-2">
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  disabled={importing}
+                                  onClick={() => handleReimport(link.url)}
+                                >
+                                  {importing ? (
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                  ) : (
+                                    <RefreshCw className="h-4 w-4" />
+                                  )}
+                                </Button>
                                 <Button
                                   size="sm"
                                   variant="ghost"
