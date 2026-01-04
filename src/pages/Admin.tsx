@@ -583,6 +583,39 @@ const Admin = () => {
     fetchChannelCounts();
   };
 
+  const deleteSeriesWithoutTitle = async () => {
+    const confirmed = window.confirm(
+      'Isso vai deletar todos os episódios de séries cujo nome é apenas "T01|EP01" (sem título da série).\n\n' +
+      'Após deletar, você deve reimportar o M3U para recuperar os episódios com os nomes corretos.\n\n' +
+      'Continuar?'
+    );
+    
+    if (!confirmed) return;
+    
+    setImporting(true);
+    
+    try {
+      // Delete series episodes with generic names (no series title)
+      const { error, count } = await supabase
+        .from('channels')
+        .delete()
+        .eq('content_type', 'SERIES')
+        .is('series_title', null)
+        .like('name', '%|EP%');
+      
+      if (error) throw error;
+      
+      toast.success(`${count || 0} episódios sem título deletados. Reimporte o M3U agora.`);
+      fetchChannels(true);
+      fetchChannelCounts();
+    } catch (error) {
+      console.error('Error deleting series:', error);
+      toast.error('Erro ao deletar séries sem título');
+    } finally {
+      setImporting(false);
+    }
+  };
+
   const categories = ['all', ...new Set(channels.map(c => c.category))];
   
   // No need to filter again since the query already applies filters
@@ -1005,11 +1038,30 @@ const Admin = () => {
                       </table>
                     </div>
                   )}
-                  <div className="mt-4 p-4 bg-muted/50 rounded-lg">
+                  <div className="mt-4 p-4 bg-muted/50 rounded-lg space-y-3">
                     <p className="text-sm text-muted-foreground">
                       <strong>Nota:</strong> Muitas listas M3U públicas têm URLs que expiram rapidamente. 
                       Use o botão "Testar Canais" regularmente para identificar e desativar streams offline.
                     </p>
+                    <div className="pt-2 border-t border-border">
+                      <p className="text-sm text-muted-foreground mb-2">
+                        <strong>Corrigir episódios de séries:</strong> Se episódios foram importados com nomes genéricos 
+                        (ex: "T01|EP01" sem o nome da série), delete-os e reimporte o M3U.
+                      </p>
+                      <Button
+                        size="sm"
+                        variant="destructive"
+                        disabled={importing}
+                        onClick={deleteSeriesWithoutTitle}
+                      >
+                        {importing ? (
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        ) : (
+                          <Trash2 className="h-4 w-4 mr-2" />
+                        )}
+                        Deletar Séries sem Título
+                      </Button>
+                    </div>
                   </div>
                 </CardContent>
               </Card>
