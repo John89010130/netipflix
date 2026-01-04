@@ -514,6 +514,8 @@ export type Database = {
       }
       is_admin: { Args: { _user_id: string }; Returns: boolean }
       is_parent_user: { Args: { _user_id: string }; Returns: boolean }
+      normalize_text: { Args: { text_input: string }; Returns: string }
+      unaccent: { Args: { "": string }; Returns: string }
     }
     Enums: {
       app_role: "ADMIN_MASTER" | "ADMIN" | "USER"
