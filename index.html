@@ -2,22 +2,46 @@
 <html lang="pt-BR" class="dark">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <title>NETIPFLIX - Streaming de TV e Filmes</title>
     <meta name="description" content="NETIPFLIX - Sua plataforma de streaming com TV ao vivo e os melhores filmes. Assista onde quiser, quando quiser." />
     <meta name="keywords" content="streaming, TV ao vivo, filmes, séries, IPTV, entretenimento" />
     <meta name="author" content="NETIPFLIX" />
     <meta name="robots" content="index, follow" />
 
+    <!-- PWA Meta Tags -->
+    <meta name="theme-color" content="#E50914" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="NETIPFLIX" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="format-detection" content="telephone=no" />
+    <meta name="msapplication-TileColor" content="#E50914" />
+    <meta name="msapplication-tap-highlight" content="no" />
+    
+    <!-- PWA Icons -->
+    <link rel="apple-touch-icon" href="/pwa-192x192.png" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon.ico" />
+
+    <!-- Open Graph -->
     <meta property="og:title" content="NETIPFLIX - Streaming de TV e Filmes" />
     <meta property="og:description" content="Sua plataforma de streaming com TV ao vivo e os melhores filmes." />
     <meta property="og:type" content="website" />
     <meta property="og:locale" content="pt_BR" />
 
+    <!-- Twitter -->
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:site" content="@netipflix" />
     
-    <meta name="theme-color" content="#E50914" />
+    <!-- Safe area for notch devices -->
+    <style>
+      :root {
+        --sat: env(safe-area-inset-top);
+        --sar: env(safe-area-inset-right);
+        --sab: env(safe-area-inset-bottom);
+        --sal: env(safe-area-inset-left);
+      }
+    </style>
   </head>
 
   <body>
