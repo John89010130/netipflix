@@ -185,29 +185,55 @@ serve(async (req) => {
         }
 
         // Create a stream that first emits the bytes we already read, then continues with the rest
+        // (be careful to not throw when the client aborts the request)
+        let cancelled = false;
+        let closed = false;
+
         const stream = new ReadableStream<Uint8Array>({
           start(controller) {
-            if (!first.done && firstBytes.length > 0) {
-              controller.enqueue(firstBytes);
+            try {
+              if (!first.done && firstBytes.length > 0) {
+                controller.enqueue(firstBytes);
+              }
+            } catch {
+              cancelled = true;
+              return;
             }
 
-            const pump = (): void => {
-              reader.read().then(({ done, value }) => {
-                if (done) {
-                  controller.close();
-                  return;
+            const pump = async () => {
+              try {
+                while (!cancelled) {
+                  const { done, value } = await reader.read();
+                  if (cancelled) break;
+
+                  if (done) {
+                    if (!closed) {
+                      closed = true;
+                      controller.close();
+                    }
+                    break;
+                  }
+
+                  if (value && !closed) {
+                    controller.enqueue(value);
+                  }
                 }
-                controller.enqueue(value!);
-                pump();
-              }).catch((err) => {
+              } catch (err) {
+                if (cancelled || closed) return;
                 console.error('Proxy stream error:', err);
-                controller.error(err);
-              });
+                try {
+                  closed = true;
+                  controller.error(err);
+                } catch {
+                  // ignore
+                }
+              }
             };
 
             pump();
           },
           cancel(reason) {
+            cancelled = true;
             try {
               reader.cancel(reason);
             } catch {
