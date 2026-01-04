@@ -245,7 +245,7 @@ const Admin = () => {
   const parseM3U = (content: string): Omit<Channel, 'id'>[] => {
     const lines = content.split('\n');
     const channels: Omit<Channel, 'id'>[] = [];
-    let currentChannel: Partial<Omit<Channel, 'id'>> = {};
+    let currentChannel: Partial<Omit<Channel, 'id'>> & { series_title?: string } = {};
 
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i].trim();
@@ -254,12 +254,22 @@ const Admin = () => {
         // Parse channel info
         const logoMatch = line.match(/tvg-logo="([^"]+)"/);
         const groupMatch = line.match(/group-title="([^"]+)"/);
+        const subgroupMatch = line.match(/pltv-subgroup="([^"]+)"/);
         const nameMatch = line.match(/,(.+)$/);
+
+        let channelName = nameMatch?.[1]?.trim() || 'Canal Desconhecido';
+        const subgroup = subgroupMatch?.[1]?.trim();
+        
+        // If there's a subgroup (series name) and the name looks like an episode pattern,
+        // prepend the series name to make it searchable
+        if (subgroup && /^T?\d+\|EP\d+/i.test(channelName)) {
+          channelName = `${subgroup} ${channelName}`;
+        }
 
         currentChannel = {
           logo_url: logoMatch?.[1] || null,
           category: groupMatch?.[1] || 'Geral',
-          name: nameMatch?.[1]?.trim() || 'Canal Desconhecido',
+          name: channelName,
           country: 'BR',
           active: true,
         };
