@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { ChevronDown, ChevronUp, Play, Radio, Wifi, WifiOff } from 'lucide-react';
-import { ChannelGroup, getQualityBadge, Channel } from '@/hooks/useChannelGroups';
+import { ChannelGroup, getQualityBadge, Channel, cleanDisplayName } from '@/hooks/useChannelGroups';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 
@@ -140,7 +140,7 @@ export const ChannelGroupCard = ({ group, onPlay }: ChannelGroupCardProps) => {
                   ) : (
                     <Radio className="h-4 w-4 text-muted-foreground" />
                   )}
-                  <span className="flex-1 text-sm truncate">{channel.name}</span>
+                  <span className="flex-1 text-sm truncate">{cleanDisplayName(channel.name)}</span>
                   <div className="flex items-center gap-1">
                     {getStatusIcon(channel)}
                     {badge && (
