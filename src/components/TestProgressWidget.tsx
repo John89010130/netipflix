@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
-import { CheckCircle, XCircle, AlertCircle, Loader2, X, Minimize2, Maximize2 } from 'lucide-react';
+import { CheckCircle, XCircle, AlertCircle, Loader2, X, Minimize2, Maximize2, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { toast } from 'sonner';
 
 interface TestJob {
   id: string;
@@ -50,18 +51,40 @@ export const TestProgressWidget = () => {
     return () => clearInterval(interval);
   }, []);
 
+  const resumeTest = async () => {
+    if (!testJob) return;
+
+    try {
+      const response = await fetch(`${SUPABASE_URL}/functions/v1/test-streams-background`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'continue', jobId: testJob.id }),
+      });
+
+      if (!response.ok) {
+        const text = await response.text().catch(() => '');
+        throw new Error(text || `HTTP ${response.status}`);
+      }
+
+      toast.message('Retomando teste...');
+    } catch (error) {
+      console.error('Error resuming test:', error);
+      toast.error('Não foi possível retomar o teste');
+    }
+  };
+
   // Don't show if dismissed or no active job
   if (dismissed) return null;
   if (!testJob) return null;
   if (testJob.status !== 'running' && testJob.status !== 'pending') return null;
 
-  const progress = testJob.total_channels > 0 
-    ? Math.round((testJob.tested_channels / testJob.total_channels) * 100) 
+  const progress = testJob.total_channels > 0
+    ? Math.round((testJob.tested_channels / testJob.total_channels) * 100)
     : 0;
 
   if (minimized) {
     return (
-      <div 
+      <div
         className="fixed bottom-4 right-4 z-50 bg-card border border-border rounded-full p-3 shadow-lg cursor-pointer hover:scale-105 transition-transform"
         onClick={() => setMinimized(false)}
       >
@@ -88,7 +111,18 @@ export const TestProgressWidget = () => {
             size="icon"
             variant="ghost"
             className="h-6 w-6"
+            onClick={resumeTest}
+            aria-label="Retomar teste"
+            title="Retomar"
+          >
+            <RefreshCw className="h-3 w-3" />
+          </Button>
+          <Button
+            size="icon"
+            variant="ghost"
+            className="h-6 w-6"
             onClick={() => setMinimized(true)}
+            aria-label="Minimizar"
           >
             <Minimize2 className="h-3 w-3" />
           </Button>
@@ -97,6 +131,7 @@ export const TestProgressWidget = () => {
             variant="ghost"
             className="h-6 w-6"
             onClick={() => setDismissed(true)}
+            aria-label="Fechar"
           >
             <X className="h-3 w-3" />
           </Button>
@@ -112,7 +147,7 @@ export const TestProgressWidget = () => {
             <span className="font-medium">{testJob.tested_channels} / {testJob.total_channels}</span>
           </div>
           <div className="w-full h-2 bg-secondary rounded-full overflow-hidden">
-            <div 
+            <div
               className="h-full bg-primary transition-all duration-500 ease-out"
               style={{ width: `${progress}%` }}
             />
