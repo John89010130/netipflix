@@ -92,10 +92,13 @@ async function runTestJob(supabase: any, jobId: string) {
     .update({ status: 'running', started_at: new Date().toISOString() })
     .eq('id', jobId);
   
-  // Get all channels
+  // Get channels not tested in the last 24 hours
+  const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  
   const { data: channels, error: channelsError } = await supabase
     .from('channels')
     .select('id, stream_url')
+    .or(`last_tested_at.is.null,last_tested_at.lt.${twentyFourHoursAgo}`)
     .order('name');
   
   if (channelsError || !channels) {
