@@ -5,7 +5,8 @@ import { VideoPlayer } from '@/components/VideoPlayer';
 import { AdultContentGate, isAdultCategory, isAdultContentVerified } from '@/components/AdultContentGate';
 import { supabase } from '@/integrations/supabase/client';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Search, X } from 'lucide-react';
+import { Input } from '@/components/ui/input';
 
 interface Channel {
   id: string;
@@ -30,7 +31,17 @@ const TV = () => {
   const [showAdultGate, setShowAdultGate] = useState(false);
   const [pendingAdultCategory, setPendingAdultCategory] = useState<string | null>(null);
   const [categories, setCategories] = useState<string[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const containerRef = useRef<HTMLDivElement>(null);
+
+  // Debounce search
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchQuery);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
 
   // Fetch categories once
   useEffect(() => {
@@ -96,6 +107,10 @@ const TV = () => {
       query = query.eq('category', selectedCategory);
     }
 
+    if (debouncedSearch) {
+      query = query.ilike('name', `%${debouncedSearch}%`);
+    }
+
     const { data, error } = await query;
 
     if (error) {
@@ -120,12 +135,12 @@ const TV = () => {
 
     setLoading(false);
     setLoadingMore(false);
-  }, [channels.length, selectedCategory]);
+  }, [channels.length, selectedCategory, debouncedSearch]);
 
-  // Initial fetch and refetch on category change
+  // Initial fetch and refetch on category or search change
   useEffect(() => {
     fetchChannels(true);
-  }, [selectedCategory]);
+  }, [selectedCategory, debouncedSearch]);
 
   // Scroll handler for infinite scroll
   const handleScroll = useCallback(() => {
@@ -184,6 +199,26 @@ const TV = () => {
           <p className="text-muted-foreground">
             {loading ? 'Carregando...' : `Assista aos melhores canais ao vivo • ${channels.length} de ${totalChannels} canais`}
           </p>
+        </div>
+
+        {/* Search */}
+        <div className="relative mb-6 max-w-md">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            type="text"
+            placeholder="Buscar canais..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="pl-10 pr-10"
+          />
+          {searchQuery && (
+            <button
+              onClick={() => setSearchQuery('')}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          )}
         </div>
 
         {/* Category Filter */}
