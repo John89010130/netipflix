@@ -25,6 +25,12 @@ const getProxiedUrl = (url: string): string => {
   if (!url.startsWith('http://') && !url.startsWith('https://')) {
     return url;
   }
+  
+  // Check if URL is already proxied (to avoid double-proxying)
+  if (url.includes('/functions/v1/stream-proxy')) {
+    return url;
+  }
+  
   // Use our edge function proxy for all external streams
   return `${SUPABASE_URL}/functions/v1/stream-proxy?url=${encodeURIComponent(url)}`;
 };
