@@ -22,95 +22,54 @@ interface Channel {
   active: boolean;
 }
 
-interface Movie {
-  id: string;
-  title: string;
-  category: string;
-  poster_url: string | null;
-  backdrop_url: string | null;
-  stream_url: string;
-  description: string | null;
-  year: number | null;
-  duration: string | null;
-  rating: number | null;
-  views_count: number;
-  active: boolean;
-}
+// Helper to check if category is film-related
+const isFilmCategory = (category: string): boolean => {
+  const lower = category.toLowerCase();
+  return lower.includes('filme') || lower.includes('movie') || lower.includes('film');
+};
+
+// Helper to check if category is series-related
+const isSeriesCategory = (category: string): boolean => {
+  const lower = category.toLowerCase();
+  return lower.includes('serie') || lower.includes('netflix') || lower.includes('talk') || lower.includes('reality');
+};
+
+// Helper to check if category is TV-related (not film, not series)
+const isTVCategory = (category: string): boolean => {
+  return !isFilmCategory(category) && !isSeriesCategory(category);
+};
 
 const Index = () => {
   const [currentVideo, setCurrentVideo] = useState<{ src: string; title: string; poster?: string } | null>(null);
-  const [channels, setChannels] = useState<Channel[]>([]);
-  const [movies, setMovies] = useState<Movie[]>([]);
+  const [tvChannels, setTVChannels] = useState<Channel[]>([]);
+  const [filmChannels, setFilmChannels] = useState<Channel[]>([]);
   const [seriesChannels, setSeriesChannels] = useState<Channel[]>([]);
-  const [loadingChannels, setLoadingChannels] = useState(true);
-  const [loadingMovies, setLoadingMovies] = useState(true);
-  const [loadingSeries, setLoadingSeries] = useState(true);
-  const channelsScrollRef = useRef<HTMLDivElement>(null);
+  const [loading, setLoading] = useState(true);
+  const tvScrollRef = useRef<HTMLDivElement>(null);
   const seriesScrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const fetchChannels = async () => {
+    const fetchAllChannels = async () => {
       const { data, error } = await supabase
         .from('channels')
         .select('*')
         .eq('active', true)
         .order('name')
-        .limit(50);
+        .limit(500);
 
       if (!error && data) {
-        // Filter out adult content and series content for home page TV section
-        setChannels(data.filter(c => 
-          !isAdultCategory(c.category) && 
-          !c.category.toLowerCase().includes('serie') &&
-          !c.category.toLowerCase().includes('netflix') &&
-          !c.category.toLowerCase().includes('filmes')
-        ));
+        // Filter out adult content
+        const safeChannels = data.filter(c => !isAdultCategory(c.category));
+        
+        // Separate by type
+        setTVChannels(safeChannels.filter(c => isTVCategory(c.category)).slice(0, 50));
+        setFilmChannels(safeChannels.filter(c => isFilmCategory(c.category)).slice(0, 50));
+        setSeriesChannels(safeChannels.filter(c => isSeriesCategory(c.category)).slice(0, 50));
       }
-      setLoadingChannels(false);
+      setLoading(false);
     };
 
-    const fetchMovies = async () => {
-      const { data, error } = await supabase
-        .from('movies')
-        .select('*')
-        .eq('active', true)
-        .order('views_count', { ascending: false })
-        .limit(100);
-
-      if (!error && data) {
-        // Filter out adult content for home page
-        setMovies(data.filter(m => !isAdultCategory(m.category)));
-      }
-      setLoadingMovies(false);
-    };
-
-    const fetchSeries = async () => {
-      const { data, error } = await supabase
-        .from('channels')
-        .select('*')
-        .eq('active', true)
-        .order('name')
-        .limit(50);
-
-      if (!error && data) {
-        // Filter for series-related categories
-        const filtered = data.filter(channel => {
-          const category = channel.category.toLowerCase();
-          return (
-            category.includes('serie') ||
-            category.includes('netflix') ||
-            category.includes('talk') ||
-            category.includes('reality')
-          ) && !isAdultCategory(channel.category);
-        });
-        setSeriesChannels(filtered);
-      }
-      setLoadingSeries(false);
-    };
-
-    fetchChannels();
-    fetchMovies();
-    fetchSeries();
+    fetchAllChannels();
   }, []);
 
   const handlePlay = (item: ContentItem) => {
@@ -128,7 +87,7 @@ const Index = () => {
     });
   };
 
-  const scrollChannels = (ref: React.RefObject<HTMLDivElement>, direction: 'left' | 'right') => {
+  const scrollContainer = (ref: React.RefObject<HTMLDivElement>, direction: 'left' | 'right') => {
     if (ref.current) {
       const scrollAmount = 300;
       ref.current.scrollBy({
@@ -138,59 +97,40 @@ const Index = () => {
     }
   };
 
-  // Convert movies to ContentItem format
-  const allMovies: ContentItem[] = movies.map(movie => ({
-    id: movie.id,
-    title: movie.title,
-    poster_url: movie.poster_url || undefined,
-    backdrop_url: movie.backdrop_url || undefined,
-    category: movie.category,
-    type: 'MOVIE' as const,
-    stream_url: movie.stream_url,
-    description: movie.description || undefined,
-    year: movie.year || undefined,
-    duration: movie.duration || undefined,
-    rating: movie.rating || undefined,
-    views_count: movie.views_count,
-  }));
-
-  // Convert series channels to ContentItem format
-  const allSeries: ContentItem[] = seriesChannels.map(channel => ({
+  // Convert channels to ContentItem format
+  const filmsAsContent: ContentItem[] = filmChannels.map(channel => ({
     id: channel.id,
     title: channel.name,
     poster_url: channel.logo_url || undefined,
     category: channel.category,
-    type: 'TV' as const,
+    type: 'MOVIE' as const,
     stream_url: channel.stream_url,
   }));
 
-  // Get top 10 movies by views
-  const top10Movies = allMovies.slice(0, 10);
-
-  // Get movies by category
-  const movieCategories = [...new Set(movies.map(m => m.category))];
-  const moviesByCategory = movieCategories.reduce((acc, category) => {
-    acc[category] = allMovies.filter(m => m.category === category);
+  // Group films by category
+  const filmCategories = [...new Set(filmChannels.map(c => c.category))];
+  const filmsByCategory = filmCategories.reduce((acc, category) => {
+    acc[category] = filmsAsContent.filter(f => f.category === category);
     return acc;
   }, {} as Record<string, ContentItem[]>);
 
-  // Hero item - top movie or fallback
-  const heroItem = top10Movies[0];
+  // Hero item - first film or fallback
+  const heroItem = filmsAsContent[0];
 
   return (
     <div className="min-h-screen bg-background">
       <Navbar />
 
       {/* Hero Section */}
-      {loadingMovies ? (
+      {loading ? (
         <div className="h-[70vh] relative">
           <Skeleton className="absolute inset-0" />
         </div>
       ) : heroItem ? (
         <HeroSection item={heroItem} onPlay={handlePlay} />
       ) : (
-        <div className="h-[50vh] flex items-center justify-center">
-          <p className="text-muted-foreground">Nenhum conteúdo disponível</p>
+        <div className="h-[50vh] flex items-center justify-center bg-gradient-to-b from-muted to-background">
+          <p className="text-muted-foreground">Carregando conteúdo...</p>
         </div>
       )}
 
@@ -209,32 +149,36 @@ const Index = () => {
             </Link>
           </div>
 
-          {/* Top 10 */}
-          {loadingMovies ? (
-            <div className="space-y-4">
-              <Skeleton className="h-8 w-48" />
-              <div className="flex gap-4 overflow-hidden">
-                {Array.from({ length: 6 }).map((_, i) => (
-                  <Skeleton key={i} className="aspect-[2/3] w-40 flex-shrink-0 rounded-lg" />
-                ))}
-              </div>
+          {loading ? (
+            <div className="flex gap-4 overflow-hidden">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <Skeleton key={i} className="aspect-video w-48 flex-shrink-0 rounded-lg" />
+              ))}
             </div>
-          ) : top10Movies.length > 0 && (
-            <ContentCarousel title="Top 10" items={top10Movies} onPlay={handlePlay} />
-          )}
+          ) : filmsAsContent.length > 0 ? (
+            <div className="space-y-8">
+              {/* Top Films */}
+              <ContentCarousel
+                title="Em Destaque"
+                items={filmsAsContent.slice(0, 15)}
+                onPlay={handlePlay}
+              />
 
-          {/* Movies by Category */}
-          {!loadingMovies && movieCategories.slice(0, 3).map((category) => (
-            moviesByCategory[category]?.length > 0 && (
-              <div key={category} className="mt-8">
-                <ContentCarousel
-                  title={category}
-                  items={moviesByCategory[category]}
-                  onPlay={handlePlay}
-                />
-              </div>
-            )
-          ))}
+              {/* By Category */}
+              {filmCategories.slice(0, 2).map((category) => (
+                filmsByCategory[category]?.length > 0 && (
+                  <ContentCarousel
+                    key={category}
+                    title={category}
+                    items={filmsByCategory[category]}
+                    onPlay={handlePlay}
+                  />
+                )
+              ))}
+            </div>
+          ) : (
+            <p className="text-muted-foreground">Nenhum filme disponível</p>
+          )}
         </section>
 
         {/* ========== TV AO VIVO ========== */}
@@ -248,7 +192,7 @@ const Index = () => {
               <Button
                 variant="ghost"
                 size="icon"
-                onClick={() => scrollChannels(channelsScrollRef, 'left')}
+                onClick={() => scrollContainer(tvScrollRef, 'left')}
                 className="rounded-full"
               >
                 <ChevronLeft className="h-5 w-5" />
@@ -256,7 +200,7 @@ const Index = () => {
               <Button
                 variant="ghost"
                 size="icon"
-                onClick={() => scrollChannels(channelsScrollRef, 'right')}
+                onClick={() => scrollContainer(tvScrollRef, 'right')}
                 className="rounded-full"
               >
                 <ChevronRight className="h-5 w-5" />
@@ -270,15 +214,15 @@ const Index = () => {
           </div>
 
           <div
-            ref={channelsScrollRef}
+            ref={tvScrollRef}
             className="flex gap-4 overflow-x-auto scrollbar-hide scroll-smooth"
           >
-            {loadingChannels ? (
+            {loading ? (
               Array.from({ length: 8 }).map((_, i) => (
                 <Skeleton key={i} className="aspect-video w-48 flex-shrink-0 rounded-lg" />
               ))
-            ) : channels.length > 0 ? (
-              channels.map((channel) => (
+            ) : tvChannels.length > 0 ? (
+              tvChannels.map((channel) => (
                 <div key={channel.id} className="flex-shrink-0 w-48">
                   <ChannelCard
                     channel={{
@@ -306,7 +250,7 @@ const Index = () => {
               <Button
                 variant="ghost"
                 size="icon"
-                onClick={() => scrollChannels(seriesScrollRef, 'left')}
+                onClick={() => scrollContainer(seriesScrollRef, 'left')}
                 className="rounded-full"
               >
                 <ChevronLeft className="h-5 w-5" />
@@ -314,7 +258,7 @@ const Index = () => {
               <Button
                 variant="ghost"
                 size="icon"
-                onClick={() => scrollChannels(seriesScrollRef, 'right')}
+                onClick={() => scrollContainer(seriesScrollRef, 'right')}
                 className="rounded-full"
               >
                 <ChevronRight className="h-5 w-5" />
@@ -331,7 +275,7 @@ const Index = () => {
             ref={seriesScrollRef}
             className="flex gap-4 overflow-x-auto scrollbar-hide scroll-smooth"
           >
-            {loadingSeries ? (
+            {loading ? (
               Array.from({ length: 8 }).map((_, i) => (
                 <Skeleton key={i} className="aspect-video w-48 flex-shrink-0 rounded-lg" />
               ))

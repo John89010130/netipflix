@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Navbar } from '@/components/Navbar';
 import { ContentCarousel } from '@/components/ContentCarousel';
 import { VideoPlayer } from '@/components/VideoPlayer';
@@ -6,25 +6,8 @@ import { supabase } from '@/integrations/supabase/client';
 import { ContentItem } from '@/types';
 import { Skeleton } from '@/components/ui/skeleton';
 import { isAdultCategory } from '@/components/AdultContentGate';
-
-// Series categories (from channels that contain series content)
-const SERIES_CATEGORIES = [
-  'Filmes e Series',
-  'Filmes & Series',
-  'Filmes - Drama',
-  'Filmes - Comedy',
-  'Filmes - Crime',
-  'Filmes - Mystery',
-  'Filmes - Talk',
-  'Filmes - Reality',
-  'Filmes  - Drama',
-  'Filmes  - Comedy',
-  'Filmes  - Crime',
-  'Filmes  - Mystery',
-  'Filmes  - Talk',
-  'Filmes  - Reality',
-  'Netflix Channel',
-];
+import { Search, X, Loader2 } from 'lucide-react';
+import { Input } from '@/components/ui/input';
 
 interface Channel {
   id: string;
@@ -36,38 +19,120 @@ interface Channel {
   active: boolean;
 }
 
+// Helper to check if category is series-related
+const isSeriesCategory = (category: string): boolean => {
+  const lower = category.toLowerCase();
+  return lower.includes('serie') || lower.includes('netflix') || lower.includes('talk') || lower.includes('reality');
+};
+
+const PAGE_SIZE = 200;
+
 const Series = () => {
   const [currentVideo, setCurrentVideo] = useState<{ src: string; title: string; poster?: string } | null>(null);
   const [seriesChannels, setSeriesChannels] = useState<Channel[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState<string>('Todos');
+  const [categories, setCategories] = useState<string[]>([]);
 
+  // Debounce search
   useEffect(() => {
-    const fetchSeries = async () => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchQuery);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  // Fetch categories once
+  useEffect(() => {
+    const fetchCategories = async () => {
       const { data, error } = await supabase
         .from('channels')
-        .select('*')
-        .eq('active', true)
-        .order('name');
+        .select('category')
+        .eq('active', true);
 
       if (!error && data) {
-        // Filter for series-related categories
-        const filtered = data.filter(channel => {
-          const category = channel.category.toLowerCase();
-          // Include channels with series-related categories
-          return (
-            category.includes('serie') ||
-            category.includes('netflix') ||
-            category.includes('talk') ||
-            category.includes('reality')
-          ) && !isAdultCategory(channel.category);
-        });
-        setSeriesChannels(filtered);
+        const uniqueCategories = [...new Set(data.map(c => c.category))]
+          .filter(c => isSeriesCategory(c) && !isAdultCategory(c))
+          .sort();
+        setCategories(['Todos', ...uniqueCategories]);
       }
-      setLoading(false);
     };
 
-    fetchSeries();
+    fetchCategories();
   }, []);
+
+  // Fetch series
+  const fetchSeries = useCallback(async (reset = false) => {
+    if (reset) {
+      setLoading(true);
+      setSeriesChannels([]);
+    } else {
+      setLoadingMore(true);
+    }
+
+    const from = reset ? 0 : seriesChannels.length;
+
+    let query = supabase
+      .from('channels')
+      .select('*')
+      .eq('active', true)
+      .order('name')
+      .range(from, from + PAGE_SIZE - 1);
+
+    if (debouncedSearch) {
+      query = query.ilike('name', `%${debouncedSearch}%`);
+    }
+
+    const { data, error } = await query;
+
+    if (error) {
+      console.error('Error fetching series:', error);
+    } else if (data) {
+      // Filter for series and non-adult
+      let filtered = data.filter(c => isSeriesCategory(c.category) && !isAdultCategory(c.category));
+      
+      if (selectedCategory !== 'Todos') {
+        filtered = filtered.filter(c => c.category === selectedCategory);
+      }
+
+      if (reset) {
+        setSeriesChannels(filtered);
+      } else {
+        setSeriesChannels(prev => [...prev, ...filtered]);
+      }
+      setHasMore(data.length === PAGE_SIZE);
+    }
+
+    setLoading(false);
+    setLoadingMore(false);
+  }, [seriesChannels.length, selectedCategory, debouncedSearch]);
+
+  // Initial fetch and refetch on filter change
+  useEffect(() => {
+    fetchSeries(true);
+  }, [selectedCategory, debouncedSearch]);
+
+  // Scroll handler for infinite scroll
+  const handleScroll = useCallback(() => {
+    if (loadingMore || !hasMore) return;
+
+    const scrollTop = window.scrollY;
+    const windowHeight = window.innerHeight;
+    const documentHeight = document.documentElement.scrollHeight;
+
+    if (scrollTop + windowHeight >= documentHeight - 500) {
+      fetchSeries(false);
+    }
+  }, [loadingMore, hasMore, fetchSeries]);
+
+  useEffect(() => {
+    window.addEventListener('scroll', handleScroll);
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, [handleScroll]);
 
   const handlePlay = (item: ContentItem) => {
     setCurrentVideo({
@@ -77,8 +142,8 @@ const Series = () => {
     });
   };
 
-  // Convert channels to ContentItem format
-  const seriesContent: ContentItem[] = seriesChannels.map(channel => ({
+  // Convert to ContentItem
+  const seriesAsContent: ContentItem[] = seriesChannels.map(channel => ({
     id: channel.id,
     title: channel.name,
     poster_url: channel.logo_url || undefined,
@@ -87,10 +152,10 @@ const Series = () => {
     stream_url: channel.stream_url,
   }));
 
-  // Group by category
-  const categories = [...new Set(seriesChannels.map(c => c.category))];
-  const seriesByCategory = categories.reduce((acc, category) => {
-    acc[category] = seriesContent.filter(s => s.category === category);
+  // Group by category for display
+  const seriesCategories = [...new Set(seriesChannels.map(c => c.category))];
+  const seriesByCategory = seriesCategories.reduce((acc, category) => {
+    acc[category] = seriesAsContent.filter(s => s.category === category);
     return acc;
   }, {} as Record<string, ContentItem[]>);
 
@@ -103,8 +168,45 @@ const Series = () => {
         <div className="mb-8">
           <h1 className="font-display text-4xl md:text-5xl tracking-wide mb-4">Séries</h1>
           <p className="text-muted-foreground">
-            {loading ? 'Carregando...' : `Assista às melhores séries • ${seriesChannels.length} canais disponíveis`}
+            {loading ? 'Carregando...' : `${seriesChannels.length} séries disponíveis`}
           </p>
+        </div>
+
+        {/* Search */}
+        <div className="relative mb-6 max-w-md">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            type="text"
+            placeholder="Buscar séries..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="pl-10 pr-10"
+          />
+          {searchQuery && (
+            <button
+              onClick={() => setSearchQuery('')}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          )}
+        </div>
+
+        {/* Category Filter */}
+        <div className="flex gap-2 mb-8 overflow-x-auto scrollbar-hide pb-2">
+          {categories.map((category) => (
+            <button
+              key={category}
+              onClick={() => setSelectedCategory(category)}
+              className={`px-4 py-2 rounded-full text-sm font-medium transition-all whitespace-nowrap ${
+                selectedCategory === category
+                  ? 'bg-primary text-primary-foreground'
+                  : 'bg-secondary text-secondary-foreground hover:bg-secondary/80'
+              }`}
+            >
+              {category}
+            </button>
+          ))}
         </div>
 
         {/* Content */}
@@ -121,32 +223,46 @@ const Series = () => {
               </div>
             ))}
           </div>
-        ) : seriesContent.length > 0 ? (
+        ) : seriesAsContent.length > 0 ? (
           <div className="space-y-8">
-            {/* Featured */}
-            {seriesContent.length > 0 && (
+            {selectedCategory === 'Todos' ? (
+              // Show by category
+              seriesCategories.map((category) => (
+                seriesByCategory[category]?.length > 0 && (
+                  <ContentCarousel
+                    key={category}
+                    title={category}
+                    items={seriesByCategory[category]}
+                    onPlay={handlePlay}
+                  />
+                )
+              ))
+            ) : (
+              // Show all in selected category
               <ContentCarousel
-                title="Em Destaque"
-                items={seriesContent.slice(0, 20)}
+                title={selectedCategory}
+                items={seriesAsContent}
                 onPlay={handlePlay}
               />
             )}
 
-            {/* By Category */}
-            {categories.slice(0, 8).map((category) => (
-              seriesByCategory[category]?.length > 0 && (
-                <ContentCarousel
-                  key={category}
-                  title={category}
-                  items={seriesByCategory[category]}
-                  onPlay={handlePlay}
-                />
-              )
-            ))}
+            {/* Loading more */}
+            {loadingMore && (
+              <div className="flex justify-center py-8">
+                <Loader2 className="h-8 w-8 animate-spin text-primary" />
+              </div>
+            )}
+
+            {/* End of list */}
+            {!hasMore && seriesChannels.length > 0 && (
+              <p className="text-center text-muted-foreground py-8">
+                Todas as {seriesChannels.length} séries carregadas
+              </p>
+            )}
           </div>
         ) : (
           <div className="text-center py-16">
-            <p className="text-muted-foreground">Nenhuma série disponível no momento.</p>
+            <p className="text-muted-foreground">Nenhuma série encontrada.</p>
           </div>
         )}
       </main>
