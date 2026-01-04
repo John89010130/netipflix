@@ -19,35 +19,93 @@ async function testStream(url: string): Promise<StreamTestResult> {
   
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+    const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
     
+    // Always use GET request to properly test if stream is actually accessible
+    // HEAD requests often return 200 even when the actual content is 404
     const response = await fetch(url, {
-      method: 'HEAD',
+      method: 'GET',
       signal: controller.signal,
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': '*/*',
       },
     });
     
     clearTimeout(timeoutId);
     const responseTime = Date.now() - startTime;
     
-    // For m3u8 files, we might need to do a GET to check content
-    if (url.includes('.m3u8') && response.status === 405) {
-      const getResponse = await fetch(url, {
-        method: 'GET',
-        signal: AbortSignal.timeout(10000),
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        },
-      });
+    // For m3u8 files, verify the content is actually a valid playlist
+    if (url.includes('.m3u8')) {
+      if (!response.ok) {
+        return {
+          url,
+          status: 'offline',
+          statusCode: response.status,
+          responseTime,
+          error: `HTTP ${response.status}`,
+        };
+      }
       
-      return {
-        url,
-        status: getResponse.ok ? 'online' : 'offline',
-        statusCode: getResponse.status,
-        responseTime: Date.now() - startTime,
-      };
+      const text = await response.text();
+      // Valid m3u8 playlists start with #EXTM3U
+      if (text.includes('#EXTM3U') || text.includes('#EXT-X-')) {
+        return {
+          url,
+          status: 'online',
+          statusCode: response.status,
+          responseTime,
+        };
+      } else {
+        return {
+          url,
+          status: 'offline',
+          statusCode: response.status,
+          responseTime,
+          error: 'Invalid playlist content',
+        };
+      }
+    }
+    
+    // For regular streams, check if we got actual content
+    // Read just the first few bytes to verify it's not an error page
+    if (response.ok) {
+      const contentType = response.headers.get('content-type') || '';
+      const contentLength = response.headers.get('content-length');
+      
+      // Check if it looks like video content
+      const isVideoContent = 
+        contentType.includes('video') || 
+        contentType.includes('mpegurl') ||
+        contentType.includes('octet-stream') ||
+        contentType.includes('application/x-mpegURL') ||
+        (contentLength && parseInt(contentLength) > 1000);
+      
+      if (isVideoContent) {
+        return {
+          url,
+          status: 'online',
+          statusCode: response.status,
+          responseTime,
+        };
+      }
+      
+      // Read a bit of content to check if it's valid
+      const reader = response.body?.getReader();
+      if (reader) {
+        const { value } = await reader.read();
+        reader.cancel();
+        
+        // Check if we got actual data
+        if (value && value.length > 100) {
+          return {
+            url,
+            status: 'online',
+            statusCode: response.status,
+            responseTime,
+          };
+        }
+      }
     }
     
     return {
