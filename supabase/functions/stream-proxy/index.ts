@@ -184,56 +184,37 @@ serve(async (req) => {
           responseHeaders['Accept-Ranges'] = 'none';
         }
 
-        // Create a stream that first emits the bytes we already read, then continues with the rest
-        // (be careful to not throw when the client aborts the request)
-        let cancelled = false;
-        let closed = false;
+        // Create a stream that first emits the bytes we already read, then continues with the rest.
+        // Use `pull` to respect backpressure (prevents memory growth on slow clients).
+        let firstChunkSent = false;
 
         const stream = new ReadableStream<Uint8Array>({
-          start(controller) {
+          async pull(controller) {
             try {
-              if (!first.done && firstBytes.length > 0) {
-                controller.enqueue(firstBytes);
+              if (!firstChunkSent) {
+                firstChunkSent = true;
+                if (!first.done && firstBytes.length > 0) {
+                  controller.enqueue(firstBytes);
+                }
+                if (first.done) controller.close();
+                return;
               }
-            } catch {
-              cancelled = true;
-              return;
-            }
 
-            const pump = async () => {
+              const { done, value } = await reader.read();
+              if (done) {
+                controller.close();
+                return;
+              }
+              if (value) controller.enqueue(value);
+            } catch (err) {
               try {
-                while (!cancelled) {
-                  const { done, value } = await reader.read();
-                  if (cancelled) break;
-
-                  if (done) {
-                    if (!closed) {
-                      closed = true;
-                      controller.close();
-                    }
-                    break;
-                  }
-
-                  if (value && !closed) {
-                    controller.enqueue(value);
-                  }
-                }
-              } catch (err) {
-                if (cancelled || closed) return;
-                console.error('Proxy stream error:', err);
-                try {
-                  closed = true;
-                  controller.error(err);
-                } catch {
-                  // ignore
-                }
+                controller.error(err);
+              } catch {
+                // ignore
               }
-            };
-
-            pump();
+            }
           },
           cancel(reason) {
-            cancelled = true;
             try {
               reader.cancel(reason);
             } catch {
@@ -255,8 +236,10 @@ serve(async (req) => {
     if (playlistText !== null) {
       const baseUrl = finalUrl.substring(0, finalUrl.lastIndexOf('/') + 1);
 
-      // Use the correct public endpoint path
-      const proxyOrigin = url.origin.replace('http://', 'https://');
+      // Use the correct public endpoint path (prefer forwarded headers; default to HTTPS)
+      const forwardedProto = req.headers.get('x-forwarded-proto')?.split(',')[0]?.trim();
+      const forwardedHost = req.headers.get('x-forwarded-host')?.split(',')[0]?.trim();
+      const proxyOrigin = `${forwardedProto || 'https'}://${forwardedHost || url.host}`.replace(/^http:\/\//i, 'https://');
       const proxyBaseUrl = `${proxyOrigin}/functions/v1/stream-proxy?url=`;
 
       console.log('Rewriting m3u8 playlist, proxy base URL:', proxyBaseUrl);

@@ -117,35 +117,38 @@ const probeStream = async (url: string, signal: AbortSignal): Promise<ProbeResul
 };
 
 // Use proxy for all stream URLs to avoid CORS issues
+const extractUnderlyingFromProxy = (maybeProxyUrl: string): string | null => {
+  try {
+    const parsed = new URL(maybeProxyUrl);
+    const u = parsed.searchParams.get('url');
+    if (!u) return null;
+
+    // Supports both canonical and legacy proxy paths
+    if (parsed.pathname.includes('stream-proxy')) {
+      return decodeURIComponent(u);
+    }
+
+    return null;
+  } catch {
+    return null;
+  }
+};
+
 const getProxiedUrl = (url: string): string => {
-  if (!url.startsWith('http://') && !url.startsWith('https://')) {
-    return url;
+  if (!/^https?:\/\//i.test(url)) return url;
+
+  // If it's already proxied (legacy or canonical), re-canonicalize to our HTTPS /functions/v1 endpoint
+  const underlying = extractUnderlyingFromProxy(url);
+  if (underlying) {
+    return `${SUPABASE_URL}/functions/v1/stream-proxy?url=${encodeURIComponent(underlying)}`;
   }
-  
-  // Check if URL is already proxied
-  if (
-    url.includes('/functions/v1/stream-proxy') ||
-    url.includes('.supabase.co/stream-proxy') ||
-    url.includes('/stream-proxy?url=')
-  ) {
-    return url;
-  }
-  
+
   return `${SUPABASE_URL}/functions/v1/stream-proxy?url=${encodeURIComponent(url)}`;
 };
 
 // Extract underlying URL from proxied URL
 const getUnderlyingUrl = (maybeProxied: string): string => {
-  try {
-    const parsed = new URL(maybeProxied);
-    if (parsed.pathname.includes('/functions/v1/stream-proxy')) {
-      const u = parsed.searchParams.get('url');
-      if (u) return decodeURIComponent(u);
-    }
-  } catch {
-    // ignore
-  }
-  return maybeProxied;
+  return extractUnderlyingFromProxy(maybeProxied) ?? maybeProxied;
 };
 
 interface VideoPlayerProps {
