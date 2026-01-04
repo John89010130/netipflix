@@ -282,21 +282,42 @@ const Admin = () => {
       .filter(([_, result]) => result.status !== 'online')
       .map(([url]) => url);
 
+    console.log('Offline URLs found:', offlineUrls.length);
+
     if (offlineUrls.length === 0) {
       toast.info('Nenhum canal offline para desativar');
       return;
     }
 
     const channelsToDeactivate = channels.filter(c => offlineUrls.includes(c.stream_url));
+    console.log('Channels to deactivate:', channelsToDeactivate.map(c => ({ id: c.id, name: c.name })));
     
+    let deactivatedCount = 0;
+    let errorCount = 0;
+
     for (const channel of channelsToDeactivate) {
-      await supabase
+      const { error } = await supabase
         .from('channels')
         .update({ active: false })
         .eq('id', channel.id);
+      
+      if (error) {
+        console.error('Error deactivating channel:', channel.name, error);
+        errorCount++;
+      } else {
+        console.log('Deactivated:', channel.name);
+        deactivatedCount++;
+      }
     }
 
-    toast.success(`${channelsToDeactivate.length} canais desativados`);
+    if (errorCount > 0) {
+      toast.error(`Erro ao desativar ${errorCount} canais. Verifique permissões.`);
+    }
+    
+    if (deactivatedCount > 0) {
+      toast.success(`${deactivatedCount} canais desativados`);
+    }
+    
     fetchChannels();
   };
 
