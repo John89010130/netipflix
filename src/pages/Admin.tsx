@@ -40,13 +40,14 @@ interface StreamTestResult {
   error?: string;
 }
 
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
+interface M3uLink {
+  id: string;
+  url: string;
+  channels_imported: number;
+  imported_at: string;
+}
 
-// Lista de links M3U já usados (para referência)
-const usedM3uLinks = [
-  'https://raw.githubusercontent.com/Rcrodrigues1301/IPTV-Brasil-m3u/main/Lista-IPTV-01.m3u',
-  // Adicione mais links conforme forem usados
-];
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 
 const Admin = () => {
   const { isAdmin, loading } = useAuth();
@@ -59,12 +60,42 @@ const Admin = () => {
   const [testResults, setTestResults] = useState<Map<string, StreamTestResult>>(new Map());
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [searchTerm, setSearchTerm] = useState('');
+  const [usedM3uLinks, setUsedM3uLinks] = useState<M3uLink[]>([]);
+  const [loadingLinks, setLoadingLinks] = useState(true);
 
   useEffect(() => {
     if (isAdmin) {
       fetchChannels();
+      fetchM3uLinks();
     }
   }, [isAdmin]);
+
+  const fetchM3uLinks = async () => {
+    setLoadingLinks(true);
+    const { data, error } = await supabase
+      .from('m3u_links')
+      .select('*')
+      .order('imported_at', { ascending: false });
+    
+    if (error) {
+      console.error('Error fetching m3u links:', error);
+    } else {
+      setUsedM3uLinks(data || []);
+    }
+    setLoadingLinks(false);
+  };
+
+  const saveM3uLink = async (url: string, channelsImported: number) => {
+    const { error } = await supabase
+      .from('m3u_links')
+      .insert({ url, channels_imported: channelsImported });
+    
+    if (error) {
+      console.error('Error saving m3u link:', error);
+    } else {
+      fetchM3uLinks();
+    }
+  };
 
   const fetchChannels = async () => {
     setLoadingChannels(true);
@@ -139,12 +170,15 @@ const Admin = () => {
     }
 
     setImporting(true);
+    let importedUrl = '';
+    
     try {
       let content = m3uContent;
 
       // If it's a URL, fetch it
       if (m3uContent.trim().startsWith('http')) {
         const rawUrl = convertToRawUrl(m3uContent.trim());
+        importedUrl = rawUrl;
         console.log('Fetching M3U from:', rawUrl);
         
         // Use edge function as proxy to avoid CORS
@@ -177,6 +211,11 @@ const Admin = () => {
         } else {
           inserted += batch.length;
         }
+      }
+
+      // Save the M3U link to history if it was a URL
+      if (importedUrl && inserted > 0) {
+        await saveM3uLink(importedUrl, inserted);
       }
 
       toast.success(`${inserted} canais importados com sucesso!`);
@@ -621,29 +660,60 @@ const Admin = () => {
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
-                  {usedM3uLinks.length === 0 ? (
+                  {loadingLinks ? (
+                    <div className="flex items-center justify-center py-8">
+                      <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                    </div>
+                  ) : usedM3uLinks.length === 0 ? (
                     <p className="text-muted-foreground">Nenhum link registrado ainda.</p>
                   ) : (
-                    <ul className="space-y-2">
-                      {usedM3uLinks.map((link, index) => (
-                        <li 
-                          key={index}
-                          className="flex items-center gap-2 p-3 bg-secondary/30 rounded-lg"
-                        >
-                          <code className="text-sm flex-1 truncate">{link}</code>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => {
-                              navigator.clipboard.writeText(link);
-                              toast.success('Link copiado!');
-                            }}
-                          >
-                            Copiar
-                          </Button>
-                        </li>
-                      ))}
-                    </ul>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b border-border">
+                            <th className="text-left py-3 px-2 font-medium">URL</th>
+                            <th className="text-center py-3 px-2 font-medium">Canais</th>
+                            <th className="text-center py-3 px-2 font-medium">Data</th>
+                            <th className="text-right py-3 px-2 font-medium">Ações</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {usedM3uLinks.map((link) => (
+                            <tr key={link.id} className="border-b border-border/50 hover:bg-secondary/30">
+                              <td className="py-3 px-2">
+                                <code className="text-xs bg-muted px-2 py-1 rounded truncate block max-w-[400px]">
+                                  {link.url}
+                                </code>
+                              </td>
+                              <td className="text-center py-3 px-2">
+                                <Badge variant="secondary">{link.channels_imported}</Badge>
+                              </td>
+                              <td className="text-center py-3 px-2 text-muted-foreground">
+                                {new Date(link.imported_at).toLocaleDateString('pt-BR', {
+                                  day: '2-digit',
+                                  month: '2-digit',
+                                  year: 'numeric',
+                                  hour: '2-digit',
+                                  minute: '2-digit'
+                                })}
+                              </td>
+                              <td className="text-right py-3 px-2">
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => {
+                                    navigator.clipboard.writeText(link.url);
+                                    toast.success('Link copiado!');
+                                  }}
+                                >
+                                  Copiar
+                                </Button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
                   )}
                   <div className="mt-4 p-4 bg-muted/50 rounded-lg">
                     <p className="text-sm text-muted-foreground">
