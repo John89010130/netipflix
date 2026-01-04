@@ -264,38 +264,20 @@ export const VideoPlayer = ({ src, title, poster, onClose, autoPlay = true }: Vi
           return;
         }
 
-        // Probe the stream to detect type
-        console.log('Probing stream type for:', underlyingUrl);
-        const probeResult = await probeStream(streamUrl, abortController.signal);
-        console.log('Probe result:', probeResult);
-        setStreamInfo(probeResult);
+        // Para streams diretos (sem .m3u8), alguns servidores limitam conexões simultâneas.
+        // O probe faz uma requisição extra e pode causar 403; então tentamos MPEG-TS primeiro.
+        console.log('Direct stream endpoint detected, trying mpegts.js first (no probe)');
+        setStreamInfo({ type: 'mpegts' });
 
-        switch (probeResult.type) {
-          case 'hls':
-            await initHls(streamUrl, video);
-            break;
-          case 'mpegts':
-          case 'flv':
-            await initMpegts(streamUrl, video, probeResult.type);
-            break;
-          case 'mp4':
-            video.src = streamUrl;
-            setIsLoading(false);
-            if (autoPlay) video.play().catch(() => setIsPlaying(false));
-            break;
-          default:
-            // Try mpegts first for unknown streams (common for IPTV)
-            console.log('Unknown stream type, trying mpegts.js first');
-            try {
-              await initMpegts(streamUrl, video, 'mpegts');
-            } catch (mpegtsError) {
-              console.log('mpegts.js failed, falling back to native');
-              cleanup();
-              video.src = streamUrl;
-              setIsLoading(false);
-              if (autoPlay) video.play().catch(() => setIsPlaying(false));
-            }
+        try {
+          await initMpegts(streamUrl, video, 'mpegts');
+        } catch (mpegtsError) {
+          console.log('mpegts.js init failed, trying HLS fallback');
+          cleanup();
+          setStreamInfo({ type: 'hls' });
+          await initHls(streamUrl, video);
         }
+        return;
       } catch (err) {
         if (abortController.signal.aborted) return;
         console.error('Player init error:', err);
@@ -390,6 +372,10 @@ export const VideoPlayer = ({ src, title, poster, onClose, autoPlay = true }: Vi
           lazyLoad: false,
           lazyLoadMaxDuration: 0,
           deferLoadAfterSourceOpen: false,
+          // Evita Range header (alguns servidores retornam 403 com Range)
+          seekType: 'param',
+          rangeLoadZeroStart: false,
+          reuseRedirectedURL: true,
           autoCleanupSourceBuffer: true,
           autoCleanupMaxBackwardDuration: 30,
           autoCleanupMinBackwardDuration: 10,
