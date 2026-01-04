@@ -49,6 +49,19 @@ interface M3uLink {
   imported_at: string;
 }
 
+interface TestJob {
+  id: string;
+  status: 'pending' | 'running' | 'completed' | 'failed';
+  total_channels: number;
+  tested_channels: number;
+  online_count: number;
+  offline_count: number;
+  error_count: number;
+  started_at: string | null;
+  completed_at: string | null;
+  created_at: string;
+}
+
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 
 const Admin = () => {
@@ -57,14 +70,45 @@ const Admin = () => {
   const [loadingChannels, setLoadingChannels] = useState(true);
   const [m3uContent, setM3uContent] = useState('');
   const [importing, setImporting] = useState(false);
-  const [testing, setTesting] = useState(false);
-  const [testProgress, setTestProgress] = useState({ current: 0, total: 0, online: 0, offline: 0 });
+  const [testJob, setTestJob] = useState<TestJob | null>(null);
   const [testResults, setTestResults] = useState<Map<string, StreamTestResult>>(new Map());
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [usedM3uLinks, setUsedM3uLinks] = useState<M3uLink[]>([]);
   const [loadingLinks, setLoadingLinks] = useState(true);
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
+
+  // Poll for test job status
+  useEffect(() => {
+    if (!isAdmin) return;
+    
+    const fetchJobStatus = async () => {
+      try {
+        const response = await fetch(`${SUPABASE_URL}/functions/v1/test-streams-background?action=status`);
+        const data = await response.json();
+        if (data.job) {
+          setTestJob(data.job);
+          // If job just completed, refresh channels
+          if (data.job.status === 'completed' && testJob?.status === 'running') {
+            fetchChannels();
+          }
+        }
+      } catch (error) {
+        console.error('Error fetching job status:', error);
+      }
+    };
+    
+    fetchJobStatus();
+    
+    // Poll every 2 seconds if a job is running
+    const interval = setInterval(() => {
+      if (testJob?.status === 'running' || testJob?.status === 'pending') {
+        fetchJobStatus();
+      }
+    }, 2000);
+    
+    return () => clearInterval(interval);
+  }, [isAdmin, testJob?.status]);
 
   useEffect(() => {
     if (isAdmin) {
@@ -362,105 +406,34 @@ const Admin = () => {
     }
   };
 
-  const testStreams = async (channelsToTest: Channel[]) => {
-    setTesting(true);
-    setTestResults(new Map());
-    
-    // Get today's date at midnight for comparison
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    
-    // Filter out channels that were already tested today and are online
-    const channelsNeedingTest = channelsToTest.filter(channel => {
-      if (channel.last_tested_at && channel.last_test_status === 'online') {
-        const lastTestedDate = new Date(channel.last_tested_at);
-        lastTestedDate.setHours(0, 0, 0, 0);
-        // Skip if tested today and was online
-        if (lastTestedDate.getTime() === today.getTime()) {
-          return false;
-        }
-      }
-      return true;
-    });
-
-    const skippedCount = channelsToTest.length - channelsNeedingTest.length;
-    
-    if (skippedCount > 0) {
-      toast.info(`${skippedCount} canais pulados (já testados online hoje)`);
-    }
-
-    if (channelsNeedingTest.length === 0) {
-      toast.success('Todos os canais já foram testados hoje!');
-      setTesting(false);
-      return;
-    }
-    
-    const urls = channelsNeedingTest.map(c => c.stream_url);
-    const batchSize = 10;
-    
-    setTestProgress({ current: 0, total: urls.length, online: 0, offline: 0 });
-    
-    const allResults = new Map<string, StreamTestResult>();
-    let onlineCount = 0;
-    let offlineCount = 0;
-    
+  const startBackgroundTest = async () => {
     try {
-      for (let i = 0; i < urls.length; i += batchSize) {
-        const batch = urls.slice(i, i + batchSize);
-        
-        const response = await fetch(`${SUPABASE_URL}/functions/v1/test-stream`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ urls: batch }),
-        });
-
-        const data = await response.json();
-        
-        if (data.results) {
-          for (const result of data.results as StreamTestResult[]) {
-            allResults.set(result.url, result);
-            
-            if (result.status === 'online') {
-              onlineCount++;
-            } else {
-              offlineCount++;
-            }
-
-            // Update channel's last_tested_at, last_test_status, and active status in database
-            const channel = channelsNeedingTest.find(c => c.stream_url === result.url);
-            if (channel) {
-              await supabase
-                .from('channels')
-                .update({
-                  last_tested_at: new Date().toISOString(),
-                  last_test_status: result.status,
-                  active: result.status === 'online', // Set active based on test result
-                })
-                .eq('id', channel.id);
-            }
-          }
-          
-          setTestResults(new Map(allResults));
-          setTestProgress({
-            current: Math.min(i + batchSize, urls.length),
-            total: urls.length,
-            online: onlineCount,
-            offline: offlineCount
-          });
+      const response = await fetch(`${SUPABASE_URL}/functions/v1/test-streams-background`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      
+      const data = await response.json();
+      
+      if (!response.ok) {
+        if (data.job) {
+          setTestJob(data.job);
+          toast.info('Um teste já está em andamento');
+        } else {
+          toast.error(data.error || 'Erro ao iniciar teste');
         }
+        return;
       }
       
-      toast.success(`Teste concluído: ${onlineCount} online, ${offlineCount} offline`);
-      
-      // Refresh channels to get updated test status
-      fetchChannels();
+      setTestJob(data.job);
+      toast.success('Teste iniciado em background! Você pode sair da página.');
     } catch (error) {
-      console.error('Test error:', error);
-      toast.error('Erro ao testar streams');
-    } finally {
-      setTesting(false);
+      console.error('Error starting test:', error);
+      toast.error('Erro ao iniciar teste de streams');
     }
   };
+
+  const isTestRunning = testJob?.status === 'running' || testJob?.status === 'pending';
 
   const updateChannelStatus = async (channelId: string, active: boolean) => {
     const { error } = await supabase
@@ -665,16 +638,16 @@ const Admin = () => {
                     </select>
                     <div className="flex gap-2 ml-auto">
                       <Button
-                        onClick={() => testStreams(filteredChannels)}
-                        disabled={testing || filteredChannels.length === 0}
+                        onClick={startBackgroundTest}
+                        disabled={isTestRunning || channels.length === 0}
                         variant="outline"
                       >
-                        {testing ? (
+                        {isTestRunning ? (
                           <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                         ) : (
                           <RefreshCw className="h-4 w-4 mr-2" />
                         )}
-                        Testar {filteredChannels.length} Canais
+                        Testar Todos os Canais
                       </Button>
                       {testResults.size > 0 && (
                         <Button
@@ -688,29 +661,56 @@ const Admin = () => {
                     </div>
                   </div>
 
-                  {/* Progress Bar */}
-                  {testing && (
+                  {/* Progress Bar - Background Job */}
+                  {testJob && (testJob.status === 'running' || testJob.status === 'pending') && (
                     <div className="space-y-2 p-4 rounded-lg bg-secondary/30 border border-border">
                       <div className="flex items-center justify-between text-sm">
-                        <span className="font-medium">Testando streams...</span>
+                        <span className="font-medium">
+                          {testJob.status === 'pending' ? 'Iniciando teste...' : 'Testando streams em background...'}
+                        </span>
                         <span className="text-muted-foreground">
-                          {testProgress.current} / {testProgress.total}
+                          {testJob.tested_channels} / {testJob.total_channels}
                         </span>
                       </div>
                       <div className="w-full h-3 bg-secondary rounded-full overflow-hidden">
                         <div 
                           className="h-full bg-primary transition-all duration-300 ease-out"
-                          style={{ width: `${testProgress.total > 0 ? (testProgress.current / testProgress.total) * 100 : 0}%` }}
+                          style={{ width: `${testJob.total_channels > 0 ? (testJob.tested_channels / testJob.total_channels) * 100 : 0}%` }}
                         />
                       </div>
                       <div className="flex gap-4 text-sm">
                         <span className="flex items-center gap-1">
                           <CheckCircle className="h-4 w-4 text-green-500" />
-                          {testProgress.online} online
+                          {testJob.online_count} online
                         </span>
                         <span className="flex items-center gap-1">
                           <XCircle className="h-4 w-4 text-red-500" />
-                          {testProgress.offline} offline
+                          {testJob.offline_count} offline
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <AlertCircle className="h-4 w-4 text-yellow-500" />
+                          {testJob.error_count} erros
+                        </span>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        O teste continua mesmo se você sair desta página.
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Last test result summary */}
+                  {testJob && testJob.status === 'completed' && (
+                    <div className="p-4 rounded-lg bg-green-500/10 border border-green-500/30">
+                      <div className="flex items-center gap-2 text-green-500 font-medium mb-2">
+                        <CheckCircle className="h-5 w-5" />
+                        Último teste concluído
+                      </div>
+                      <div className="flex gap-4 text-sm text-muted-foreground">
+                        <span>{testJob.online_count} online</span>
+                        <span>{testJob.offline_count} offline</span>
+                        <span>{testJob.error_count} erros</span>
+                        <span className="ml-auto">
+                          {testJob.completed_at && new Date(testJob.completed_at).toLocaleString('pt-BR')}
                         </span>
                       </div>
                     </div>
