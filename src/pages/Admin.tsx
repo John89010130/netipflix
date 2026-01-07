@@ -29,6 +29,7 @@ import {
 import { Navigate } from 'react-router-dom';
 import { AdminClients } from '@/components/admin/AdminClients';
 import { AdminSupport } from '@/components/admin/AdminSupport';
+import { classifyContent } from '@/utils/contentClassifier';
 
 interface Channel {
   id: string;
@@ -209,36 +210,114 @@ const Admin = () => {
   };
 
   const toggleM3uLinkActive = async (linkId: string, isActive: boolean) => {
-    // First update the link status
-    const { error: linkError } = await supabase
-      .from('m3u_links')
-      .update({ is_active: isActive })
-      .eq('id', linkId);
-    
-    if (linkError) {
-      toast.error('Erro ao atualizar status da lista');
-      return;
-    }
+    try {
+      setImporting(true);
+      setImportProgress({ 
+        stage: 'downloading', 
+        message: `${isActive ? 'Ativando' : 'Desativando'} lista...` 
+      });
+      
+      // First update the link status
+      const { error: linkError } = await supabase
+        .from('m3u_links')
+        .update({ is_active: isActive })
+        .eq('id', linkId);
+      
+      if (linkError) {
+        console.error('Link update error:', linkError);
+        toast.error(`Erro ao atualizar status da lista: ${linkError.message}`);
+        setImportProgress(null);
+        return;
+      }
 
-    // Then update all channels associated with this link
-    const { error: channelsError, count } = await supabase
-      .from('channels')
-      .update({ active: isActive })
-      .eq('m3u_link_id', linkId);
-    
-    if (channelsError) {
-      toast.error('Erro ao atualizar canais');
-      return;
-    }
+      setImportProgress({ 
+        stage: 'parsing', 
+        message: 'Buscando canais da lista...' 
+      });
 
-    toast.success(isActive 
-      ? `Lista e ${count || 0} canais ativados!` 
-      : `Lista e ${count || 0} canais desativados!`
-    );
-    
-    fetchM3uLinks();
-    fetchChannelCounts();
-    fetchChannels(true);
+      // Get all channel IDs for this link
+      const { data: channelIds, error: fetchError } = await supabase
+        .from('channels')
+        .select('id')
+        .eq('m3u_link_id', linkId);
+      
+      if (fetchError) {
+        console.error('Error fetching channel IDs:', fetchError);
+        toast.error('Erro ao buscar canais');
+        setImportProgress(null);
+        return;
+      }
+
+      if (!channelIds || channelIds.length === 0) {
+        toast.info('Nenhum canal encontrado para esta lista');
+        setImportProgress(null);
+        await Promise.all([
+          fetchM3uLinks(),
+          fetchChannelCounts(),
+          fetchChannels(true)
+        ]);
+        return;
+      }
+
+      const totalChannels = channelIds.length;
+      console.log(`Updating ${totalChannels} channels in batches...`);
+
+      // Update channels in batches to avoid timeout
+      const batchSize = 100;
+      let updatedCount = 0;
+
+      for (let i = 0; i < channelIds.length; i += batchSize) {
+        const batch = channelIds.slice(i, i + batchSize);
+        const batchIds = batch.map(c => c.id);
+        
+        setImportProgress({ 
+          stage: 'inserting', 
+          message: `${isActive ? 'Ativando' : 'Desativando'} canais...`,
+          current: Math.min(updatedCount + batch.length, totalChannels),
+          total: totalChannels
+        });
+        
+        const { error: batchError } = await supabase
+          .from('channels')
+          .update({ active: isActive })
+          .in('id', batchIds);
+        
+        if (batchError) {
+          console.error(`Batch update error (${i}-${i + batch.length}):`, batchError);
+        } else {
+          updatedCount += batch.length;
+          console.log(`Updated ${updatedCount}/${totalChannels} channels`);
+        }
+      }
+
+      console.log(`Successfully updated ${updatedCount} channels`);
+
+      setImportProgress({ 
+        stage: 'done', 
+        message: `${updatedCount} canais ${isActive ? 'ativados' : 'desativados'}!` 
+      });
+
+      toast.success(isActive 
+        ? `Lista e ${updatedCount} canais ativados!` 
+        : `Lista e ${updatedCount} canais desativados!`
+      );
+      
+      // Reload all data
+      await Promise.all([
+        fetchM3uLinks(),
+        fetchChannelCounts(),
+        fetchChannels(true)
+      ]);
+      
+    } catch (error) {
+      console.error('Toggle link active error:', error);
+      toast.error('Erro inesperado ao atualizar lista');
+    } finally {
+      setTimeout(() => {
+        setImporting(false);
+        setImportProgress(null);
+      }, 1500);
+    }
   };
 
   const fetchChannels = async (reset = false) => {
@@ -366,8 +445,10 @@ const Admin = () => {
         const subgroup = subgroupMatch?.[1]?.trim();
         
         // If there's a subgroup (series name) and the name looks like an episode pattern,
-        // prepend the series name to make it searchable
+        // prepend the series name to make it searchable and store the series_title
+        let seriesTitle: string | undefined = undefined;
         if (subgroup && /^T?\d+\|EP\d+/i.test(channelName)) {
+          seriesTitle = subgroup;
           channelName = `${subgroup} ${channelName}`;
         }
 
@@ -377,11 +458,32 @@ const Admin = () => {
           name: channelName,
           country: 'BR',
           active: true,
+          series_title: seriesTitle,
         };
       } else if (line.startsWith('http') && currentChannel.name) {
         // Only add if URL is valid
         if (isValidStreamUrl(line)) {
           currentChannel.stream_url = line;
+          
+          // Usar o classificador inteligente para determinar o tipo de conteúdo
+          const classification = classifyContent(
+            currentChannel.name!,
+            currentChannel.category!,
+            line
+          );
+          
+          // Adicionar informações de classificação
+          (currentChannel as any).content_type = classification.contentType;
+          
+          // Log para debug (apenas em development)
+          if (import.meta.env.DEV && classification.confidence < 60) {
+            console.log(`[Classificação] ${currentChannel.name}:`, {
+              type: classification.contentType,
+              confidence: classification.confidence,
+              reasons: classification.reasons
+            });
+          }
+          
           channels.push(currentChannel as Omit<Channel, 'id'>);
         }
         currentChannel = {};
@@ -534,9 +636,14 @@ const Admin = () => {
         return;
       }
 
+      // Gerar estatísticas de classificação
+      const tvCount = parsedChannels.filter((c: any) => c.content_type === 'TV').length;
+      const movieCount = parsedChannels.filter((c: any) => c.content_type === 'MOVIE').length;
+      const seriesCount = parsedChannels.filter((c: any) => c.content_type === 'SERIES').length;
+
       setImportProgress({ 
         stage: 'parsing', 
-        message: `${parsedChannels.length} canais encontrados` 
+        message: `${parsedChannels.length} canais encontrados (TV: ${tvCount}, Filmes: ${movieCount}, Séries: ${seriesCount})` 
       });
 
       // Check for duplicates
@@ -829,7 +936,213 @@ const Admin = () => {
     }
   };
 
-  // Delete all channels imported from a specific M3U link and reimport
+  // Reimport from link (delete old channels and reimport)
+  const reimportFromLink = async (linkId: string, linkUrl: string) => {
+    const confirmed = window.confirm(
+      `Isso vai DELETAR todos os canais desta lista e REIMPORTAR do link.\n\n` +
+      `Link: ${linkUrl.substring(0, 60)}...\n\n` +
+      `Deseja continuar?`
+    );
+    
+    if (!confirmed) return;
+    
+    setImporting(true);
+    
+    try {
+      // Delete all channels from this link
+      const { error: deleteError, count } = await supabase
+        .from('channels')
+        .delete()
+        .eq('m3u_link_id', linkId);
+      
+      if (deleteError) {
+        throw deleteError;
+      }
+      
+      toast.success(`${count || 0} canais deletados. Reimportando...`);
+      
+      // Reimport from URL
+      const rawUrl = convertToRawUrl(linkUrl);
+      const response = await fetch(`${SUPABASE_URL}/functions/v1/stream-proxy?url=${encodeURIComponent(rawUrl)}`);
+      
+      if (!response.ok) {
+        throw new Error(`Erro ao buscar M3U: ${response.status}`);
+      }
+      
+      const content = await response.text();
+      const parsedChannels = parseM3U(content);
+      
+      if (parsedChannels.length === 0) {
+        toast.error('Nenhum canal encontrado no M3U');
+        return;
+      }
+      
+      // Get existing URLs to avoid duplicates
+      const existingUrls = await fetchAllStreamUrls();
+      const newChannels = parsedChannels.filter(c => !existingUrls.has(c.stream_url));
+      
+      // Insert with the same link ID
+      let inserted = 0;
+      const batchSize = 50;
+      
+      for (let i = 0; i < newChannels.length; i += batchSize) {
+        const batch = newChannels.slice(i, i + batchSize);
+        const batchWithLink = batch.map(c => ({ ...c, m3u_link_id: linkId }));
+        
+        const { error } = await supabase.from('channels').insert(batchWithLink);
+        
+        if (!error) {
+          inserted += batch.length;
+        }
+      }
+      
+      // Update link record
+      await supabase
+        .from('m3u_links')
+        .update({ 
+          channels_imported: inserted,
+          imported_at: new Date().toISOString()
+        })
+        .eq('id', linkId);
+      
+      toast.success(`${inserted} canais reimportados com sucesso!`);
+      
+      fetchChannels(true);
+      fetchChannelCounts();
+      fetchM3uLinks();
+      fetchAllCategories();
+    } catch (error) {
+      console.error('Error reimporting:', error);
+      toast.error('Erro ao reimportar. Verifique se o link ainda está válido.');
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  // Delete entire M3U list (link and all channels)
+  const deleteM3uList = async (linkId: string, linkUrl: string) => {
+    const confirmed = window.confirm(
+      `Isso vai DELETAR PERMANENTEMENTE esta lista e TODOS os seus canais.\n\n` +
+      `Link: ${linkUrl.substring(0, 60)}...\n\n` +
+      `Esta ação não pode ser desfeita. Deseja continuar?`
+    );
+    
+    if (!confirmed) return;
+    
+    setImporting(true);
+    setImportProgress({ stage: 'downloading', message: 'Preparando deleção...', current: 0, total: 0 });
+    
+    try {
+      // Verify authentication and admin status
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError || !session) {
+        throw new Error('Sessão expirada. Faça login novamente.');
+      }
+      
+      console.log('Session user:', session.user.id);
+      
+      // Check if user is admin
+      const { data: roleData, error: roleError } = await supabase
+        .from('user_roles')
+        .select('role')
+        .eq('user_id', session.user.id)
+        .in('role', ['ADMIN', 'ADMIN_MASTER'])
+        .single();
+      
+      console.log('User role:', roleData);
+      
+      if (roleError || !roleData) {
+        throw new Error('Você precisa ser admin para deletar listas.');
+      }
+      
+      // First, count how many channels to delete
+      const { count: totalChannels, error: countError } = await supabase
+        .from('channels')
+        .select('id', { count: 'exact', head: true })
+        .eq('m3u_link_id', linkId);
+      
+      if (countError) {
+        console.error('Error counting channels:', countError);
+        throw new Error(`Erro ao contar canais: ${countError.message}`);
+      }
+      
+      if (!totalChannels || totalChannels === 0) {
+        // No channels, just delete the link
+        const { error: deleteLinkError } = await supabase
+          .from('m3u_links')
+          .delete()
+          .eq('id', linkId);
+        
+        if (deleteLinkError) {
+          throw new Error(`Erro ao deletar link: ${deleteLinkError.message}`);
+        }
+        
+        toast.success('Lista deletada! (sem canais)');
+        
+        await Promise.all([
+          fetchChannels(true),
+          fetchChannelCounts(),
+          fetchM3uLinks(),
+          fetchAllCategories()
+        ]);
+        
+        return;
+      }
+      
+      console.log(`Deletando lista (canais serão deletados automaticamente via CASCADE)...`);
+      setImportProgress({ 
+        stage: 'parsing', 
+        message: `Deletando lista e ${totalChannels} canais...`, 
+        current: 0, 
+        total: totalChannels 
+      });
+      
+      // Delete the m3u_link - channels will be automatically deleted via CASCADE
+      const { error: deleteLinkError } = await supabase
+        .from('m3u_links')
+        .delete()
+        .eq('id', linkId);
+      
+      if (deleteLinkError) {
+        throw new Error(`Erro ao deletar link: ${deleteLinkError.message}`);
+      }
+      
+      console.log(`Lista e ${totalChannels} canais deletados com sucesso!`);
+      
+      setImportProgress({ 
+        stage: 'done', 
+        message: `Lista deletada! ${totalChannels} canais removidos.` 
+      });
+      
+      toast.success(`Lista deletada! ${totalChannels} canais removidos.`);
+      
+      await Promise.all([
+        fetchChannels(true),
+        fetchChannelCounts(),
+        fetchM3uLinks(),
+        fetchAllCategories()
+      ]);
+    } catch (error) {
+      console.error('Error deleting list:', error);
+      
+      let errorMessage = 'Erro desconhecido';
+      if (error instanceof Error) {
+        errorMessage = error.message;
+      } else if (typeof error === 'object' && error !== null) {
+        errorMessage = JSON.stringify(error);
+      }
+      
+      console.error('Error details:', errorMessage);
+      toast.error(`Erro ao deletar lista: ${errorMessage}`);
+    } finally {
+      setTimeout(() => {
+        setImporting(false);
+        setImportProgress(null);
+      }, 1500);
+    }
+  };
+
+  // Delete all channels imported from a specific M3U link and reimport (legacy function - keeping for compatibility)
   const deleteAndReimportFromLink = async (linkUrl: string) => {
     const confirmed = window.confirm(
       `Isso vai DELETAR todos os canais deste link e reimportar com o parser atualizado.\n\n` +
@@ -1362,10 +1675,13 @@ const Admin = () => {
                           </tr>
                         </thead>
                         <tbody>
-                          {usedM3uLinks.map((link) => (
+                          {usedM3uLinks.map((link) => {
+                            const isOrphanList = link.url.startsWith('internal://orphan-channels');
+                            
+                            return (
                             <tr 
                               key={link.id} 
-                              className={`border-b border-border/50 hover:bg-secondary/30 ${!link.is_active ? 'opacity-60' : ''}`}
+                              className={`border-b border-border/50 hover:bg-secondary/30 ${!link.is_active ? 'opacity-60' : ''} ${isOrphanList ? 'bg-amber-500/5' : ''}`}
                             >
                               <td className="text-center py-3 px-2">
                                 <Switch
@@ -1375,9 +1691,20 @@ const Admin = () => {
                                 />
                               </td>
                               <td className="py-3 px-2">
-                                <code className="text-xs bg-muted px-2 py-1 rounded truncate block max-w-[350px]">
-                                  {link.url}
-                                </code>
+                                {isOrphanList ? (
+                                  <div className="flex items-center gap-2">
+                                    <code className="text-xs bg-amber-500/10 px-2 py-1 rounded border border-amber-500/20">
+                                      🔗 Canais Órfãos (Sistema)
+                                    </code>
+                                    <span className="text-xs text-muted-foreground">
+                                      Canais importados sem link associado
+                                    </span>
+                                  </div>
+                                ) : (
+                                  <code className="text-xs bg-muted px-2 py-1 rounded truncate block max-w-[350px]">
+                                    {link.url}
+                                  </code>
+                                )}
                               </td>
                               <td className="text-center py-3 px-2">
                                 <Badge variant={link.is_active ? 'secondary' : 'outline'}>
@@ -1393,46 +1720,94 @@ const Admin = () => {
                                   minute: '2-digit'
                                 })}
                               </td>
-                              <td className="text-right py-3 px-2 space-x-1">
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  disabled={importing}
-                                  onClick={() => handleReimport(link.url)}
-                                  title="Adicionar novos canais"
-                                >
-                                  {importing ? (
-                                    <Loader2 className="h-4 w-4 animate-spin" />
+                              <td className="text-right py-3 px-2">
+                                <div className="flex items-center justify-end gap-1">
+                                  {isOrphanList ? (
+                                    <>
+                                      <Button
+                                        size="sm"
+                                        variant="destructive"
+                                        disabled={importing}
+                                        onClick={() => deleteM3uList(link.id, link.url)}
+                                        title="Deletar canais órfãos: Remove permanentemente todos os canais sem link associado"
+                                        className="h-8"
+                                      >
+                                        <Trash2 className="h-3.5 w-3.5 mr-1" />
+                                        Limpar Órfãos
+                                      </Button>
+                                    </>
                                   ) : (
-                                    <RefreshCw className="h-4 w-4" />
+                                    <>
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        disabled={importing}
+                                        onClick={() => reimportFromLink(link.id, link.url)}
+                                        title="Reimportar: Deletar canais antigos e reimportar do link"
+                                        className="h-8"
+                                      >
+                                        <RefreshCw className="h-3.5 w-3.5 mr-1" />
+                                        Reimportar
+                                      </Button>
+                                      <Button
+                                        size="sm"
+                                        variant="destructive"
+                                        disabled={importing}
+                                        onClick={() => deleteM3uList(link.id, link.url)}
+                                        title="Deletar lista: Remove permanentemente o link e todos os canais"
+                                        className="h-8"
+                                      >
+                                        <Trash2 className="h-3.5 w-3.5 mr-1" />
+                                        Deletar
+                                      </Button>
+                                      <Button
+                                        size="sm"
+                                        variant="ghost"
+                                        onClick={() => {
+                                          navigator.clipboard.writeText(link.url);
+                                          toast.success('Link copiado!');
+                                        }}
+                                        title="Copiar URL"
+                                        className="h-8"
+                                      >
+                                        Copiar
+                                      </Button>
+                                    </>
                                   )}
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  variant="destructive"
-                                  disabled={importing}
-                                  onClick={() => deleteAndReimportFromLink(link.url)}
-                                  title="Deletar e reimportar todos"
-                                >
-                                  <Trash2 className="h-4 w-4" />
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  onClick={() => {
-                                    navigator.clipboard.writeText(link.url);
-                                    toast.success('Link copiado!');
-                                  }}
-                                >
-                                  Copiar
-                                </Button>
+                                </div>
                               </td>
                             </tr>
-                          ))}
+                          );
+                          })}
                         </tbody>
                       </table>
                     </div>
                   )}
+                  <div className="mt-4 p-4 bg-muted/50 rounded-lg space-y-3">
+                    <p className="text-sm font-medium">Ações Disponíveis:</p>
+                    <div className="space-y-2 text-sm text-muted-foreground">
+                      <div className="flex items-start gap-2">
+                        <div className="mt-0.5">🔄</div>
+                        <div>
+                          <strong>Ativar/Inativar:</strong> Use o switch para ativar ou desativar todos os canais da lista sem deletá-los.
+                        </div>
+                      </div>
+                      <div className="flex items-start gap-2">
+                        <div className="mt-0.5">♻️</div>
+                        <div>
+                          <strong>Reimportar:</strong> Deleta os canais antigos e reimporta do mesmo link usando o parser atualizado. 
+                          Útil após melhorias no sistema de classificação.
+                        </div>
+                      </div>
+                      <div className="flex items-start gap-2">
+                        <div className="mt-0.5">🗑️</div>
+                        <div>
+                          <strong>Deletar:</strong> Remove permanentemente o link e todos os seus canais. 
+                          Esta ação não pode ser desfeita.
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                   <div className="mt-4 p-4 bg-muted/50 rounded-lg space-y-4">
                     <p className="text-sm text-muted-foreground">
                       <strong>Nota:</strong> Muitas listas M3U públicas têm URLs que expiram rapidamente. 

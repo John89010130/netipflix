@@ -36,40 +36,77 @@ const Index = () => {
     const fetchAllChannels = async () => {
       setLoading(true);
       
-      // Use active_channels view to filter out channels from inactive lists
-      const { data, error } = await supabase
-        .from('active_channels' as any)
-        .select('*')
-        .order('name')
-        .limit(1000);
+      try {
+        // Use active_channels view to filter out channels from inactive lists
+        const { data, error } = await supabase
+          .from('active_channels' as any)
+          .select('*')
+          .order('name')
+          .limit(1000);
 
-      if (error) {
-        console.error('Error fetching channels:', error);
+        if (error) {
+          console.error('Error fetching channels:', error);
+          setLoading(false);
+          return;
+        }
+
+        console.log('Fetched channels from active_channels view:', data?.length || 0);
+
+        if (data && data.length > 0) {
+          // Cast data to Channel array
+          const channels = data as unknown as Channel[];
+          
+          // Filter out adult content
+          const safeChannels = channels.filter(c => !isAdultCategory(c.category));
+          
+          console.log('Safe channels after adult filter:', safeChannels.length);
+          
+          // Separate by content_type
+          const films = safeChannels.filter(c => c.content_type === 'MOVIE');
+          const series = safeChannels.filter(c => c.content_type === 'SERIES');
+          const tv = safeChannels.filter(c => c.content_type === 'TV');
+          
+          console.log('Distribution:', { films: films.length, series: series.length, tv: tv.length });
+          
+          setFilmChannels(films.slice(0, 50));
+          setSeriesChannels(series.slice(0, 50));
+          setTVChannels(tv.slice(0, 50));
+        } else {
+          console.warn('No channels found in active_channels view');
+          // Reset arrays to empty
+          setFilmChannels([]);
+          setSeriesChannels([]);
+          setTVChannels([]);
+        }
+      } catch (error) {
+        console.error('Unexpected error fetching channels:', error);
+      } finally {
         setLoading(false);
-        return;
       }
-
-      if (data) {
-        // Cast data to Channel array
-        const channels = data as unknown as Channel[];
-        
-        // Filter out adult content
-        const safeChannels = channels.filter(c => !isAdultCategory(c.category));
-        
-        // Separate by content_type
-        const films = safeChannels.filter(c => c.content_type === 'MOVIE');
-        const series = safeChannels.filter(c => c.content_type === 'SERIES');
-        const tv = safeChannels.filter(c => c.content_type === 'TV');
-        
-        setFilmChannels(films.slice(0, 50));
-        setSeriesChannels(series.slice(0, 50));
-        setTVChannels(tv.slice(0, 50));
-      }
-      
-      setLoading(false);
     };
 
     fetchAllChannels();
+    
+    // Set up realtime subscription to reload when channels change
+    const channelSubscription = supabase
+      .channel('channels-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'channels'
+        },
+        (payload) => {
+          console.log('Channels table changed, reloading...', payload);
+          fetchAllChannels();
+        }
+      )
+      .subscribe();
+    
+    return () => {
+      channelSubscription.unsubscribe();
+    };
   }, []);
 
   const handlePlay = (item: ContentItem) => {
@@ -117,6 +154,9 @@ const Index = () => {
   // Hero item - first film or fallback
   const heroItem = filmsAsContent[0];
 
+  // Check if there's no content at all
+  const hasNoContent = filmChannels.length === 0 && seriesChannels.length === 0 && tvChannels.length === 0;
+
   return (
     <div className="min-h-screen bg-background">
       <Navbar />
@@ -126,11 +166,26 @@ const Index = () => {
         <div className="h-[70vh] relative">
           <Skeleton className="absolute inset-0" />
         </div>
+      ) : hasNoContent ? (
+        <div className="h-[50vh] flex items-center justify-center bg-gradient-to-b from-muted to-background">
+          <div className="text-center max-w-md px-4">
+            <Tv className="h-16 w-16 text-muted-foreground mx-auto mb-4" />
+            <h2 className="text-2xl font-bold mb-2">Nenhum conteúdo disponível</h2>
+            <p className="text-muted-foreground mb-4">
+              Nenhuma lista M3U está ativa. Vá ao Admin para ativar listas ou importar novo conteúdo.
+            </p>
+            <Link to="/admin">
+              <Button>
+                Ir para Admin
+              </Button>
+            </Link>
+          </div>
+        </div>
       ) : heroItem ? (
         <HeroSection item={heroItem} onPlay={handlePlay} />
       ) : (
         <div className="h-[50vh] flex items-center justify-center bg-gradient-to-b from-muted to-background">
-          <p className="text-muted-foreground">Carregando conteúdo...</p>
+          <p className="text-muted-foreground">Sem destaque disponível</p>
         </div>
       )}
 
