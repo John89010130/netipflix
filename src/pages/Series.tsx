@@ -143,7 +143,10 @@ const Series = () => {
       query = query.eq('category', selectedCategory);
     }
 
-    // Search is handled separately with unaccent
+    // Server-side search using ilike on series_title or name
+    if (debouncedSearch) {
+      query = query.or(`name.ilike.%${debouncedSearch}%,series_title.ilike.%${debouncedSearch}%`);
+    }
 
     const { data, error } = await query;
 
@@ -157,25 +160,11 @@ const Series = () => {
     if (data) {
       let filteredData = data as unknown as Episode[];
       
-      // Filter by adult content
+      // Filter by adult content (client-side since category filter is complex)
       if (selectedCategory === 'Todos') {
         filteredData = filteredData.filter(c => !isAdultCategory(c.category));
       } else if (selectedCategory === '🔞 Adulto') {
         filteredData = filteredData.filter(c => isAdultCategory(c.category));
-      }
-      
-      // Client-side accent-insensitive search
-      if (debouncedSearch) {
-        const normalizedSearch = debouncedSearch.toLowerCase()
-          .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-        filteredData = filteredData.filter(c => {
-          const normalizedName = (c.name || '').toLowerCase()
-            .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-          const normalizedTitle = (c.series_title || '').toLowerCase()
-            .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-          return normalizedName.includes(normalizedSearch) || 
-                 normalizedTitle.includes(normalizedSearch);
-        });
       }
 
       if (reset) {
