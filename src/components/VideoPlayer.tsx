@@ -406,15 +406,53 @@ export const VideoPlayer = ({ src, title, poster, contentId, contentType, onClos
     const initPlayer = async () => {
       try {
         // If it obviously looks like an MP4/WebM/etc
-        // Em localhost: usar URL direta (HTTP funciona)
-        // Em produção: SEMPRE usar proxy (evita mixed content)
+        // ESTRATÉGIA: Tentar URL direta primeiro (usa IP do usuário)
+        // Se falhar, tentar proxy como fallback
         if (looksLikeDirectFile) {
-          const videoUrl = isLocalhost ? src : streamUrl;
-          console.log(`Direct MP4/WebM file detected, using ${isLocalhost ? 'direct URL' : 'proxy'}:`, videoUrl);
+          console.log('Direct MP4/WebM file detected');
           setStreamInfo({ type: 'mp4' });
-          video.src = videoUrl;
+          
+          // Lista de URLs para tentar: direto primeiro, proxy depois
+          const urlsToTry = [src, streamUrl];
+          
+          for (const urlToTry of urlsToTry) {
+            console.log(`Tentando MP4 com: ${urlToTry.substring(0, 80)}...`);
+            try {
+              await new Promise<void>((resolve, reject) => {
+                const timeoutId = setTimeout(() => reject(new Error('Timeout')), 10000);
+                
+                const handleCanPlay = () => {
+                  clearTimeout(timeoutId);
+                  video.removeEventListener('canplay', handleCanPlay);
+                  video.removeEventListener('error', handleError);
+                  resolve();
+                };
+                
+                const handleError = () => {
+                  clearTimeout(timeoutId);
+                  video.removeEventListener('canplay', handleCanPlay);
+                  video.removeEventListener('error', handleError);
+                  reject(new Error('Video load error'));
+                };
+                
+                video.addEventListener('canplay', handleCanPlay);
+                video.addEventListener('error', handleError);
+                video.src = urlToTry;
+                video.load();
+              });
+              
+              console.log(`✅ MP4 carregado com sucesso: ${urlToTry.substring(0, 50)}...`);
+              setIsLoading(false);
+              if (autoPlay) video.play().catch(() => setIsPlaying(false));
+              return;
+            } catch (err) {
+              console.warn(`❌ Falha ao carregar: ${urlToTry.substring(0, 50)}...`, err);
+            }
+          }
+          
+          // Se todas tentativas falharam, mostrar erro com opção de player externo
+          setError('Não foi possível reproduzir. Tente abrir em um player externo.');
           setIsLoading(false);
-          if (autoPlay) video.play().catch(() => setIsPlaying(false));
           return;
         }
 
@@ -831,6 +869,43 @@ export const VideoPlayer = ({ src, title, poster, contentId, contentType, onClos
           <div className="bg-destructive/20 border border-destructive/50 rounded-lg p-6 max-w-lg text-center">
             <AlertTriangle className="h-10 w-10 text-destructive mx-auto mb-4" />
             <p className="text-destructive-foreground mb-4">{error}</p>
+            
+            {/* Botões de Player Externo - visíveis para todos */}
+            <div className="mb-4 space-y-3">
+              <p className="text-sm text-muted-foreground">Abrir em player externo:</p>
+              <div className="flex flex-wrap justify-center gap-2">
+                <button
+                  onClick={() => {
+                    window.open(`vlc://${src}`, '_blank');
+                    toast.info('Abrindo VLC...');
+                  }}
+                  className="px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-md transition-colors flex items-center gap-2"
+                >
+                  <Play className="h-4 w-4" />
+                  VLC
+                </button>
+                <button
+                  onClick={() => {
+                    window.open(`intent:${src}#Intent;package=com.mxtech.videoplayer.ad;end`, '_blank');
+                    toast.info('Abrindo MX Player...');
+                  }}
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md transition-colors flex items-center gap-2"
+                >
+                  <Play className="h-4 w-4" />
+                  MX Player
+                </button>
+                <button
+                  onClick={async () => {
+                    await navigator.clipboard.writeText(src);
+                    toast.success('Link copiado! Cole no seu player favorito.');
+                  }}
+                  className="px-4 py-2 bg-secondary hover:bg-secondary/80 text-foreground rounded-md transition-colors flex items-center gap-2"
+                >
+                  <Copy className="h-4 w-4" />
+                  Copiar Link
+                </button>
+              </div>
+            </div>
             
             {/* Diagnostic info for admins */}
             {isAdmin && streamInfo && (
