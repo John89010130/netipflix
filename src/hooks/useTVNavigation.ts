@@ -16,10 +16,15 @@ export const useTVNavigation = () => {
     return Array.from(elements)
       .filter(el => {
         const style = window.getComputedStyle(el);
-        return style.display !== 'none' && 
-               style.visibility !== 'hidden' && 
-               el.offsetParent !== null &&
-               !el.hasAttribute('disabled');
+        // Skip elements that are hidden or disabled
+        if (style.display === 'none' || style.visibility === 'hidden' || el.offsetParent === null || el.hasAttribute('disabled')) {
+          return false;
+        }
+        // Skip hero section elements (they have data-skip-tv-nav)
+        if (el.closest('[data-skip-tv-nav]')) {
+          return false;
+        }
+        return true;
       })
       .map(element => ({
         element,
@@ -151,26 +156,26 @@ export const useTVNavigation = () => {
   return { containerRef };
 };
 
-// Global TV mode styles
+// Global TV mode styles - subtle focus
 export const tvFocusStyles = `
-  /* TV Focus Ring Styles */
+  /* TV Focus Ring Styles - Subtle */
   *:focus {
     outline: none !important;
   }
   
   *:focus-visible {
-    outline: 3px solid hsl(var(--primary)) !important;
+    outline: 2px solid hsl(var(--foreground) / 0.5) !important;
     outline-offset: 2px !important;
     border-radius: 8px;
-    box-shadow: 0 0 0 6px hsl(var(--primary) / 0.3) !important;
+    box-shadow: 0 0 20px hsl(var(--foreground) / 0.15) !important;
   }
   
   button:focus-visible,
   a:focus-visible,
   [role="button"]:focus-visible,
   [data-focusable="true"]:focus-visible {
-    transform: scale(1.05);
-    transition: transform 0.15s ease-out, box-shadow 0.15s ease-out;
+    transform: scale(1.03);
+    transition: transform 0.2s ease-out, box-shadow 0.2s ease-out;
     z-index: 10;
     position: relative;
   }

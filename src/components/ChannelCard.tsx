@@ -35,7 +35,7 @@ export const ChannelCard = ({ channel, onPlay }: ChannelCardProps) => {
     >
       <div className={cn(
         "relative aspect-video overflow-hidden rounded-lg bg-secondary transition-all",
-        isFocused && "ring-4 ring-primary ring-offset-2 ring-offset-background"
+        isFocused && "ring-2 ring-foreground/50 ring-offset-2 ring-offset-background shadow-lg"
       )}>
         {/* Logo Container */}
         <div className="absolute inset-0 flex items-center justify-center p-4">

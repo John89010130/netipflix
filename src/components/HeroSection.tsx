@@ -29,7 +29,7 @@ export const HeroSection = ({ items, onPlay, onMoreInfo, rotationInterval = 1000
   if (!item) return null;
 
   return (
-    <section className="relative h-[70vh] md:h-[85vh] w-full overflow-hidden">
+    <section className="relative h-[70vh] md:h-[85vh] w-full overflow-hidden" data-skip-tv-nav>
       {/* Background Image with fade transition */}
       <div className="absolute inset-0">
         {items.map((heroItem, index) => (
