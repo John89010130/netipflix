@@ -74,6 +74,14 @@ const Movies = () => {
 
     const from = reset ? 0 : currentLength;
 
+    console.log('🎬 Movies: Buscando filmes...', {
+      reset,
+      from,
+      pageSize: PAGE_SIZE,
+      selectedCategory,
+      searchQuery: debouncedSearch
+    });
+
     let query = supabase
       .from('active_channels' as any)
       .select('*')
@@ -91,6 +99,12 @@ const Movies = () => {
 
     const { data, error } = await query;
 
+    console.log('🎬 Movies: Resultado da query', {
+      resultCount: data?.length || 0,
+      error: error?.message,
+      hasData: !!data
+    });
+
     if (error) {
       console.error('Error fetching channels:', error);
       setLoading(false);
@@ -101,12 +115,17 @@ const Movies = () => {
     if (data) {
       let filteredData = data as unknown as Channel[];
       
+      console.log('🎬 Movies: Antes de filtrar adulto:', filteredData.length);
+      
       // Filter by adult content
       if (selectedCategory === 'Todos') {
         filteredData = filteredData.filter(c => !isAdultCategory(c.category));
       } else if (selectedCategory === '🔞 Adulto') {
         filteredData = filteredData.filter(c => isAdultCategory(c.category));
       }
+
+      console.log('🎬 Movies: Depois de filtrar adulto:', filteredData.length);
+      console.log('🎬 Movies: Primeiros 3 filmes:', filteredData.slice(0, 3).map(c => c.name));
 
       if (reset) {
         setChannels(filteredData);
