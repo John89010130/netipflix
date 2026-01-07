@@ -36,10 +36,10 @@ const Index = () => {
     const fetchAllChannels = async () => {
       setLoading(true);
       
+      // Use active_channels view to filter out channels from inactive lists
       const { data, error } = await supabase
-        .from('channels')
+        .from('active_channels' as any)
         .select('*')
-        .eq('active', true)
         .order('name')
         .limit(1000);
 
@@ -50,8 +50,11 @@ const Index = () => {
       }
 
       if (data) {
+        // Cast data to Channel array
+        const channels = data as unknown as Channel[];
+        
         // Filter out adult content
-        const safeChannels = data.filter(c => !isAdultCategory(c.category));
+        const safeChannels = channels.filter(c => !isAdultCategory(c.category));
         
         // Separate by content_type
         const films = safeChannels.filter(c => c.content_type === 'MOVIE');
