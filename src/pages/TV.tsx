@@ -19,7 +19,7 @@ const TV = () => {
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
   const [totalChannels, setTotalChannels] = useState(0);
-  const [currentVideo, setCurrentVideo] = useState<{ src: string; title: string } | null>(null);
+  const [currentVideo, setCurrentVideo] = useState<{ src: string; title: string; contentId?: string; contentType?: 'TV' } | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<string>('Todos');
   const [showAdultGate, setShowAdultGate] = useState(false);
   const [pendingAdultCategory, setPendingAdultCategory] = useState<string | null>(null);
@@ -196,6 +196,8 @@ const TV = () => {
     setCurrentVideo({
       src: channel.stream_url,
       title: channel.name,
+      contentId: channel.id,
+      contentType: 'TV',
     });
   };
 
@@ -338,6 +340,8 @@ const TV = () => {
         <VideoPlayer
           src={currentVideo.src}
           title={currentVideo.title}
+          contentId={currentVideo.contentId}
+          contentType={currentVideo.contentType}
           onClose={() => setCurrentVideo(null)}
         />
       )}

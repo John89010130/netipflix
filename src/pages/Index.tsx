@@ -34,7 +34,7 @@ interface WatchHistoryItem {
 
 const Index = () => {
   const { user } = useAuth();
-  const [currentVideo, setCurrentVideo] = useState<{ src: string; title: string; poster?: string } | null>(null);
+  const [currentVideo, setCurrentVideo] = useState<{ src: string; title: string; poster?: string; contentId?: string; contentType?: 'TV' | 'MOVIE' | 'SERIES' } | null>(null);
   const [tvChannels, setTVChannels] = useState<Channel[]>([]);
   const [filmChannels, setFilmChannels] = useState<Channel[]>([]);
   const [seriesChannels, setSeriesChannels] = useState<Channel[]>([]);
@@ -136,17 +136,23 @@ const Index = () => {
       setLoading(true);
       
       try {
-        // Fetch newest movies for hero banner
+        // Fetch newest movies for hero banner - extract year from name
         const { data: newestMovies, error: heroError } = await supabase
           .from('active_channels' as any)
           .select('*')
           .eq('content_type', 'MOVIE')
-          .order('created_at', { ascending: false })
-          .limit(100);
+          .limit(500);
 
         if (!heroError && newestMovies) {
           const safeHeroMovies = (newestMovies as unknown as Channel[])
             .filter(c => !isAdultCategory(c.category))
+            .map(movie => {
+              // Extract year from name pattern "Title (YYYY)"
+              const yearMatch = movie.name.match(/\((\d{4})\)/);
+              const extractedYear = yearMatch ? parseInt(yearMatch[1]) : 0;
+              return { ...movie, extractedYear };
+            })
+            .sort((a, b) => b.extractedYear - a.extractedYear)
             .slice(0, 5);
 
           const heroContent: ContentItem[] = safeHeroMovies.map(channel => ({
@@ -238,6 +244,8 @@ const Index = () => {
       src: item.stream_url,
       title: item.title,
       poster: item.backdrop_url || item.poster_url,
+      contentId: item.id,
+      contentType: item.type as 'TV' | 'MOVIE' | 'SERIES',
     });
   };
 
@@ -245,6 +253,8 @@ const Index = () => {
     setCurrentVideo({
       src: channel.stream_url,
       title: channel.name,
+      contentId: channel.id,
+      contentType: (channel.content_type as 'TV' | 'MOVIE' | 'SERIES') || 'TV',
     });
   };
 
@@ -484,6 +494,8 @@ const Index = () => {
           src={currentVideo.src}
           title={currentVideo.title}
           poster={currentVideo.poster}
+          contentId={currentVideo.contentId}
+          contentType={currentVideo.contentType}
           onClose={() => setCurrentVideo(null)}
         />
       )}

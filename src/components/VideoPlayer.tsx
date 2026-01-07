@@ -21,6 +21,7 @@ import {
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'sonner';
+import { supabase } from '@/integrations/supabase/client';
 import { 
   DropdownMenu,
   DropdownMenuContent,
@@ -164,11 +165,13 @@ interface VideoPlayerProps {
   src: string;
   title?: string;
   poster?: string;
+  contentId?: string;
+  contentType?: 'TV' | 'MOVIE' | 'SERIES';
   onClose?: () => void;
   autoPlay?: boolean;
 }
 
-export const VideoPlayer = ({ src, title, poster, onClose, autoPlay = true }: VideoPlayerProps) => {
+export const VideoPlayer = ({ src, title, poster, contentId, contentType, onClose, autoPlay = true }: VideoPlayerProps) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const hlsRef = useRef<Hls | null>(null);
@@ -190,8 +193,37 @@ export const VideoPlayer = ({ src, title, poster, onClose, autoPlay = true }: Vi
   const [streamInfo, setStreamInfo] = useState<{ type: StreamType; contentType?: string } | null>(null);
   const [isCasting, setIsCasting] = useState(false);
   const [isPiP, setIsPiP] = useState(false);
+  const [historySaved, setHistorySaved] = useState(false);
   
-  const { isAdmin } = useAuth();
+  const { isAdmin, user } = useAuth();
+
+  // Save watch history when video starts playing
+  useEffect(() => {
+    const saveWatchHistory = async () => {
+      if (!user?.id || !contentId || historySaved) return;
+      
+      try {
+        await supabase
+          .from('watch_history')
+          .upsert({
+            user_id: user.id,
+            content_id: contentId,
+            content_type: contentType || 'MOVIE',
+            watched_at: new Date().toISOString(),
+            progress: 0
+          }, {
+            onConflict: 'user_id,content_id'
+          });
+        setHistorySaved(true);
+      } catch (err) {
+        console.error('Error saving watch history:', err);
+      }
+    };
+
+    if (isPlaying && !isLoading && !error) {
+      saveWatchHistory();
+    }
+  }, [isPlaying, isLoading, error, user?.id, contentId, contentType, historySaved]);
   
   const proxiedUrl = getProxiedUrl(src);
 
