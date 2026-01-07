@@ -10,9 +10,10 @@ interface ContentCarouselProps {
   showRank?: boolean;
   onPlay?: (item: ContentItem) => void;
   onAddToList?: (item: ContentItem) => void;
+  onMoreInfo?: (item: ContentItem) => void;
 }
 
-export const ContentCarousel = ({ title, items, showRank, onPlay, onAddToList }: ContentCarouselProps) => {
+export const ContentCarousel = ({ title, items, showRank, onPlay, onAddToList, onMoreInfo }: ContentCarouselProps) => {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [showLeftArrow, setShowLeftArrow] = useState(false);
   const [showRightArrow, setShowRightArrow] = useState(true);
@@ -68,6 +69,7 @@ export const ContentCarousel = ({ title, items, showRank, onPlay, onAddToList }:
               showRank={showRank}
               onPlay={onPlay}
               onAddToList={onAddToList}
+              onMoreInfo={onMoreInfo}
             />
           ))}
         </div>

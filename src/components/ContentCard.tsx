@@ -9,9 +9,10 @@ interface ContentCardProps {
   showRank?: boolean;
   onPlay?: (item: ContentItem) => void;
   onAddToList?: (item: ContentItem) => void;
+  onMoreInfo?: (item: ContentItem) => void;
 }
 
-export const ContentCard = ({ item, index, showRank, onPlay, onAddToList }: ContentCardProps) => {
+export const ContentCard = ({ item, index, showRank, onPlay, onAddToList, onMoreInfo }: ContentCardProps) => {
   const [isHovered, setIsHovered] = useState(false);
 
   return (
@@ -92,7 +93,13 @@ export const ContentCard = ({ item, index, showRank, onPlay, onAddToList }: Cont
               <button className="flex h-8 w-8 items-center justify-center rounded-full border-2 border-muted-foreground text-muted-foreground transition-all hover:border-foreground hover:text-foreground">
                 <ThumbsUp className="h-4 w-4" />
               </button>
-              <button className="ml-auto flex h-8 w-8 items-center justify-center rounded-full border-2 border-muted-foreground text-muted-foreground transition-all hover:border-foreground hover:text-foreground">
+              <button 
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onMoreInfo?.(item);
+                }}
+                className="ml-auto flex h-8 w-8 items-center justify-center rounded-full border-2 border-muted-foreground text-muted-foreground transition-all hover:border-foreground hover:text-foreground"
+              >
                 <ChevronDown className="h-4 w-4" />
               </button>
             </div>

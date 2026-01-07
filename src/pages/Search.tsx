@@ -4,6 +4,8 @@ import { Navbar } from '@/components/Navbar';
 import { ContentCard } from '@/components/ContentCard';
 import { ChannelCard } from '@/components/ChannelCard';
 import { VideoPlayer } from '@/components/VideoPlayer';
+import { ContentDetailModal } from '@/components/ContentDetailModal';
+import { SeriesDetailModal } from '@/components/SeriesDetailModal';
 import { supabase } from '@/integrations/supabase/client';
 import { isAdultCategory } from '@/components/AdultContentGate';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -31,6 +33,39 @@ interface SeriesGroup {
   episodes: Channel[];
   seasons: number[];
 }
+
+// Parse episode number from name if not in database
+const parseEpisodeNumber = (name: string, dbEpisodeNum: number | null): number => {
+  if (dbEpisodeNum && dbEpisodeNum > 0) return dbEpisodeNum;
+  
+  // Try to extract from patterns like "S01E09", "E09", "Ep 09", "Episode 9"
+  const patterns = [
+    /[Ss]\d+[Ee](\d+)/,      // S01E09
+    /[Ee][Pp]?\s*(\d+)/i,    // E09, Ep09, Ep 09
+    /[Ee]pisode\s*(\d+)/i,   // Episode 9
+    /\s(\d{1,3})\s*[-–]\s*/  // " 09 - Title"
+  ];
+  
+  for (const pattern of patterns) {
+    const match = name.match(pattern);
+    if (match) {
+      return parseInt(match[1], 10);
+    }
+  }
+  
+  return 999; // Default for unknown ordering
+};
+
+const parseSeasonNumber = (name: string, dbSeasonNum: number | null): number => {
+  if (dbSeasonNum && dbSeasonNum > 0) return dbSeasonNum;
+  
+  const match = name.match(/[Ss](\d+)/);
+  if (match) {
+    return parseInt(match[1], 10);
+  }
+  
+  return 1; // Default to season 1
+};
 
 const Search = () => {
   const [searchParams] = useSearchParams();
@@ -123,18 +158,22 @@ const Search = () => {
     const group = seriesMap.get(title)!;
     group.episodes.push(episode);
     
-    if (episode.season_number && !group.seasons.includes(episode.season_number)) {
-      group.seasons.push(episode.season_number);
+    // Parse season from name if not in DB
+    const parsedSeason = parseSeasonNumber(episode.name, episode.season_number);
+    if (parsedSeason && !group.seasons.includes(parsedSeason)) {
+      group.seasons.push(parsedSeason);
     }
   });
 
   seriesMap.forEach(group => {
     group.seasons.sort((a, b) => a - b);
     group.episodes.sort((a, b) => {
-      const seasonA = a.season_number || 0;
-      const seasonB = b.season_number || 0;
+      const seasonA = parseSeasonNumber(a.name, a.season_number);
+      const seasonB = parseSeasonNumber(b.name, b.season_number);
       if (seasonA !== seasonB) return seasonA - seasonB;
-      return (a.episode_number || 0) - (b.episode_number || 0);
+      const epA = parseEpisodeNumber(a.name, a.episode_number);
+      const epB = parseEpisodeNumber(b.name, b.episode_number);
+      return epA - epB;
     });
     groupedSeries.push(group);
   });
@@ -157,8 +196,12 @@ const Search = () => {
 
   const getEpisodesForSeason = (series: SeriesGroup, season: number) => {
     return series.episodes
-      .filter(ep => ep.season_number === season)
-      .sort((a, b) => (a.episode_number || 0) - (b.episode_number || 0));
+      .filter(ep => parseSeasonNumber(ep.name, ep.season_number) === season)
+      .sort((a, b) => {
+        const epA = parseEpisodeNumber(a.name, a.episode_number);
+        const epB = parseEpisodeNumber(b.name, b.episode_number);
+        return epA - epB;
+      });
   };
 
   return (
@@ -337,16 +380,11 @@ const Search = () => {
                                 {/* Episode Info */}
                                 <div className="flex-1 min-w-0">
                                   <p className="font-medium line-clamp-1">
-                                    {episode.season_number && episode.episode_number
-                                      ? `E${episode.episode_number} - ${episode.name.replace(/S\d+E\d+\s*-?\s*/i, '')}`
-                                      : episode.name
-                                    }
+                                    {`E${String(parseEpisodeNumber(episode.name, episode.episode_number)).padStart(2, '0')} - ${episode.name.replace(/^.*[Ss]\d+[Ee]\d+\s*[-–]?\s*/i, '').replace(/^[Ee][Pp]?\s*\d+\s*[-–]?\s*/i, '').trim() || episode.series_title || 'Episódio'}`}
                                   </p>
-                                  {episode.season_number && episode.episode_number && (
-                                    <p className="text-sm text-muted-foreground">
-                                      Temporada {episode.season_number}, Episódio {episode.episode_number}
-                                    </p>
-                                  )}
+                                  <p className="text-sm text-muted-foreground">
+                                    Temporada {parseSeasonNumber(episode.name, episode.season_number)}, Episódio {parseEpisodeNumber(episode.name, episode.episode_number)}
+                                  </p>
                                 </div>
                               </button>
                             ))}
