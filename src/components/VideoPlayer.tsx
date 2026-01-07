@@ -147,6 +147,16 @@ const extractUnderlyingFromProxy = (maybeProxyUrl: string): string | null => {
 const getProxiedUrl = (url: string): string => {
   if (!/^https?:\/\//i.test(url)) return url;
 
+  // 🏠 Em localhost: NUNCA usar proxy (funciona direto com HTTP)
+  const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+  if (isLocalhost) {
+    console.log('🏠 Localhost detectado - usando URL direta sem proxy');
+    return url;
+  }
+
+  // 🌐 Em produção (HTTPS): SEMPRE usar proxy para evitar mixed content
+  console.log('🌐 Produção detectada - usando proxy Supabase');
+
   // If it's already proxied (legacy or canonical), re-canonicalize to our HTTPS /functions/v1 endpoint
   const underlying = extractUnderlyingFromProxy(url);
   if (underlying) {
@@ -213,6 +223,9 @@ export const VideoPlayer = ({ src, title, poster, contentId, contentType, onClos
   const [nextEpisodeCountdown, setNextEpisodeCountdown] = useState(15);
   
   const { isAdmin, user } = useAuth();
+
+  // Detectar ambiente (localhost vs produção)
+  const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
 
   // Load saved progress when component mounts
   useEffect(() => {
@@ -412,30 +425,37 @@ export const VideoPlayer = ({ src, title, poster, contentId, contentType, onClos
         }
 
         // Para streams MPEG-TS diretos (.ts ou live streams)
-        // Estratégia SIMPLES: URL direta com mpegts.js, sem proxy, sem complicação
         if (looksLikeMpegTs) {
-          console.log('MPEG-TS: usando URL direta:', src);
+          console.log('MPEG-TS detectado');
           setStreamInfo({ type: 'mpegts' });
 
-          try {
-            await initMpegts(src, video, 'mpegts');
-            return;
-          } catch (error: any) {
-            console.error('mpegts.js failed:', error);
-            // Fallback: tentar <video> nativo
-            console.log('Trying native <video> element');
-            setStreamInfo({ type: 'mp4' });
+          // Em localhost: URL direta funciona
+          // Em produção: tentar proxy primeiro, depois URL direta
+          const urlsToTry = isLocalhost ? [src] : [streamUrl, src];
+          
+          for (const urlToTry of urlsToTry) {
+            console.log(`Tentando mpegts.js com: ${urlToTry}`);
             try {
-              video.src = src;
-              await video.play();
-              setIsPlaying(true);
-              setIsLoading(false);
+              await initMpegts(urlToTry, video, 'mpegts');
               return;
-            } catch (nativeError) {
-              setError('Não foi possível reproduzir este stream');
-              setIsLoading(false);
-              return;
+            } catch (error: any) {
+              console.error(`mpegts.js falhou com ${urlToTry}:`, error);
             }
+          }
+
+          // Fallback final: tentar <video> nativo com URL original
+          console.log('Todas tentativas mpegts falharam, usando <video> nativo');
+          setStreamInfo({ type: 'mp4' });
+          try {
+            video.src = src;
+            await video.play();
+            setIsPlaying(true);
+            setIsLoading(false);
+            return;
+          } catch (nativeError) {
+            setError('Não foi possível reproduzir este stream');
+            setIsLoading(false);
+            return;
           }
         }
 
