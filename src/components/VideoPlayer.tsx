@@ -392,12 +392,22 @@ export const VideoPlayer = ({ src, title, poster, contentId, contentType, onClos
 
     const initPlayer = async () => {
       try {
-        // If it obviously looks like an MP4/WebM/etc, skip probing and proxy
-        // Use original URL directly for better compatibility
+        // If it obviously looks like an MP4/WebM/etc, skip probing.
+        // NOTE: if the stream URL is HTTP while the app is running on HTTPS, browsers can block it as mixed-content.
+        // In that case, use the proxy (HTTPS) to keep playback reliable.
         if (looksLikeDirectFile) {
-          console.log('Direct MP4/WebM file detected, using native playback without proxy');
+          const isMixedContent =
+            typeof window !== 'undefined' && window.location.protocol === 'https:' && /^http:\/\//i.test(src);
+
+          const playbackUrl = isMixedContent ? streamUrl : src;
+
+          console.log(
+            isMixedContent
+              ? 'Direct video is HTTP under HTTPS; using proxy to avoid mixed-content blocking'
+              : 'Direct MP4/WebM file detected, using native playback without proxy'
+          );
           setStreamInfo({ type: 'mp4' });
-          video.src = src; // Use original URL, not proxied
+          video.src = playbackUrl;
           setIsLoading(false);
           if (autoPlay) video.play().catch(() => setIsPlaying(false));
           return;
@@ -411,36 +421,46 @@ export const VideoPlayer = ({ src, title, poster, contentId, contentType, onClos
           return;
         }
 
-        // Para streams MPEG-TS diretos (.ts ou live streams), tentar URL direta PRIMEIRO
-        // Isso evita problemas com proxy e funciona melhor com servidores IPTV
+        // Para streams MPEG-TS diretos (.ts ou live streams), evitar tocar URL HTTP direto em página HTTPS
+        // (isso costuma falhar por mixed-content/CORS). Nesses casos, usar o proxy primeiro.
         if (looksLikeMpegTs) {
-          console.log('MPEG-TS stream detected, trying direct URL first');
+          const isMixedContent =
+            typeof window !== 'undefined' && window.location.protocol === 'https:' && /^http:\/\//i.test(src);
+
+          console.log(
+            isMixedContent
+              ? 'MPEG-TS stream detected (HTTP under HTTPS), using proxy first'
+              : 'MPEG-TS stream detected, trying direct URL first'
+          );
           setStreamInfo({ type: 'mpegts' });
 
+          const primaryUrl = isMixedContent ? streamUrl : src;
+          const shouldTryProxyAfter = !isMixedContent; // se já começamos pelo proxy, não faz sentido repetir
+
           try {
-            // Tentar URL ORIGINAL primeiro (sem proxy) - funciona melhor!
-            console.log('Attempting direct URL without proxy...');
-            await initMpegts(src, video, 'mpegts');
+            console.log(isMixedContent ? 'Attempting via proxy...' : 'Attempting direct URL without proxy...');
+            await initMpegts(primaryUrl, video, 'mpegts');
             return;
           } catch (directError: any) {
-            console.log('Direct URL failed:', directError?.message);
+            console.log('Primary URL failed:', directError?.message);
             cleanup();
-            
-            // Se erro é de codec, tentar reprodução nativa diretamente
+
+            // Se erro é de codec, tentar reprodução nativa (mas respeitando mixed-content)
             if (directError?.message?.includes('Codec not supported')) {
               console.log('Codec not supported, trying native video element...');
               setStreamInfo({ type: 'mp4' });
               try {
-                video.src = src;
+                const fallbackUrl = isMixedContent ? streamUrl : src;
+                video.src = fallbackUrl;
                 video.load();
-                
+
                 // Add error handler
-                const errorHandler = (e: Event) => {
+                const errorHandler = () => {
                   console.error('Native video error:', video.error);
                   video.removeEventListener('error', errorHandler);
                 };
                 video.addEventListener('error', errorHandler);
-                
+
                 // Add canplay handler
                 const canplayHandler = () => {
                   console.log('Native video can play');
@@ -448,7 +468,7 @@ export const VideoPlayer = ({ src, title, poster, contentId, contentType, onClos
                   setIsLoading(false);
                 };
                 video.addEventListener('canplay', canplayHandler, { once: true });
-                
+
                 await video.play();
                 setIsPlaying(true);
                 return;
@@ -456,34 +476,37 @@ export const VideoPlayer = ({ src, title, poster, contentId, contentType, onClos
                 console.log('Native playback also failed:', nativeError);
               }
             }
-            
-            try {
-              console.log('Trying with proxy...');
-              await initMpegts(streamUrl, video, 'mpegts');
-              return;
-            } catch (proxyError: any) {
-              console.log('Proxy failed too:', proxyError?.message);
-              cleanup();
-              
-              // Tentar reprodução nativa com URL original
-              console.log('Trying native video element as last resort...');
-              setStreamInfo({ type: 'mp4' });
+
+            if (shouldTryProxyAfter) {
               try {
-                video.src = src;
-                video.load();
-                const playPromise = video.play();
-                if (playPromise) {
-                  await playPromise;
-                }
-                setIsLoading(false);
-                setIsPlaying(true);
+                console.log('Trying with proxy...');
+                await initMpegts(streamUrl, video, 'mpegts');
                 return;
-              } catch (nativeError) {
-                console.log('Native playback failed, trying HLS fallback...');
-                setStreamInfo({ type: 'hls' });
-                await initHls(streamUrl, video);
-                return;
+              } catch (proxyError: any) {
+                console.log('Proxy failed too:', proxyError?.message);
+                cleanup();
               }
+            }
+
+            // Tentar reprodução nativa como último recurso
+            console.log('Trying native video element as last resort...');
+            setStreamInfo({ type: 'mp4' });
+            try {
+              const fallbackUrl = isMixedContent ? streamUrl : src;
+              video.src = fallbackUrl;
+              video.load();
+              const playPromise = video.play();
+              if (playPromise) {
+                await playPromise;
+              }
+              setIsLoading(false);
+              setIsPlaying(true);
+              return;
+            } catch (nativeError) {
+              console.log('Native playback failed, trying HLS fallback...');
+              setStreamInfo({ type: 'hls' });
+              await initHls(streamUrl, video);
+              return;
             }
           }
         }
