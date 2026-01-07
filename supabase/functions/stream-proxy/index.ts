@@ -43,30 +43,102 @@ serve(async (req) => {
     
     console.log('Proxying stream:', decodedUrl);
 
-    // Forward headers for proper streaming - use VLC-like User-Agent for better compatibility
-    const headers: HeadersInit = {
-      'User-Agent': 'VLC/3.0.20 LibVLC/3.0.20',
-      'Accept': '*/*',
-      'Accept-Language': 'en-US,en;q=0.9',
-      'Connection': 'keep-alive',
-      'Icy-MetaData': '1',
-    };
-    
+    // Forward headers for proper streaming.
+    // Some IPTV providers behave differently based on User-Agent and Range usage.
+    // We'll try a few safe combinations (VLC-like + browser UA, with/without Range) before giving up.
+
+    const incomingUA = req.headers.get('user-agent') || '';
+    const incomingAcceptLanguage = req.headers.get('accept-language') || 'en-US,en;q=0.9';
+    const incomingReferer = req.headers.get('referer');
+    const incomingOrigin = req.headers.get('origin');
+
     const rangeHeader = req.headers.get('range');
-    if (rangeHeader) {
-      headers['Range'] = rangeHeader;
+    const looksLikeTs = /\.ts(\?|$)/i.test(decodedUrl);
+
+    const buildHeaders = (opts: { userAgent: string; includeRange: boolean; forceRange: boolean }): HeadersInit => {
+      const h: Record<string, string> = {
+        'User-Agent': opts.userAgent,
+        'Accept': '*/*',
+        'Accept-Language': incomingAcceptLanguage,
+        'Connection': 'keep-alive',
+        'Cache-Control': 'no-cache',
+        'Pragma': 'no-cache',
+        // Helps with certain servers that misbehave with gzip/br on binary streams
+        'Accept-Encoding': 'identity',
+      };
+
+      if (incomingReferer) h['Referer'] = incomingReferer;
+      if (incomingOrigin) h['Origin'] = incomingOrigin;
+
+      if (opts.includeRange) {
+        if (rangeHeader) h['Range'] = rangeHeader;
+        else if (opts.forceRange && looksLikeTs) h['Range'] = 'bytes=0-';
+      }
+
+      return h;
+    };
+
+    const attempts: Array<{ name: string; headers: HeadersInit }> = [
+      {
+        name: 'vlc_with_range',
+        headers: buildHeaders({ userAgent: 'VLC/3.0.20 LibVLC/3.0.20', includeRange: true, forceRange: true }),
+      },
+      {
+        name: 'vlc_no_range',
+        headers: buildHeaders({ userAgent: 'VLC/3.0.20 LibVLC/3.0.20', includeRange: false, forceRange: false }),
+      },
+    ];
+
+    if (incomingUA) {
+      attempts.push({
+        name: 'browser_with_range',
+        headers: buildHeaders({ userAgent: incomingUA, includeRange: true, forceRange: true }),
+      });
+      attempts.push({
+        name: 'browser_no_range',
+        headers: buildHeaders({ userAgent: incomingUA, includeRange: false, forceRange: false }),
+      });
     }
 
-    const response = await fetch(decodedUrl, {
-      headers,
-      redirect: 'follow',
-    });
+    let response: Response | null = null;
+    const attemptResults: Array<{ name: string; status: number }> = [];
 
-    if (!response.ok) {
-      console.error('Stream fetch failed:', response.status, response.statusText);
+    for (const attempt of attempts) {
+      try {
+        console.log(
+          `Fetch attempt (${attempt.name}) range=${rangeHeader ?? 'none'} url=${decodedUrl}`,
+        );
+
+        const r = await fetch(decodedUrl, {
+          headers: attempt.headers,
+          redirect: 'follow',
+        });
+
+        attemptResults.push({ name: attempt.name, status: r.status });
+
+        // If success, stop.
+        if (r.ok) {
+          response = r;
+          break;
+        }
+
+        // Most important fallbacks are for 403/404 (some providers mask blocks as 404).
+        // For other status codes, don't keep retrying.
+        if (![403, 404].includes(r.status)) {
+          response = r;
+          break;
+        }
+      } catch (err) {
+        console.error(`Fetch attempt failed (${attempt.name}):`, err);
+      }
+    }
+
+    if (!response || !response.ok) {
+      const status = response?.status ?? 502;
+      console.error('Stream fetch failed:', status, response?.statusText ?? '', 'attempts:', attemptResults);
       return new Response(
-        JSON.stringify({ error: `Failed to fetch stream: ${response.status}` }),
-        { status: response.status, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        JSON.stringify({ error: `Failed to fetch stream: ${status}`, attempts: attemptResults }),
+        { status, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
