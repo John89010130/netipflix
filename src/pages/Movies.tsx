@@ -43,17 +43,17 @@ const Movies = () => {
     return () => clearTimeout(timer);
   }, [searchQuery]);
 
-  // Fetch categories once - only MOVIE content
+  // Fetch categories once - only MOVIE content from active lists
   useEffect(() => {
     const fetchCategories = async () => {
       const { data, error } = await supabase
-        .from('channels')
+        .from('active_channels' as any)
         .select('category')
-        .eq('active', true)
         .eq('content_type', 'MOVIE');
 
       if (!error && data) {
-        const uniqueCategories = [...new Set(data.map(c => c.category))].sort();
+        const channels = data as unknown as { category: string }[];
+        const uniqueCategories = [...new Set(channels.map(c => c.category))].sort();
         const regularCategories = uniqueCategories.filter(c => !isAdultCategory(c));
         const adultCategories = uniqueCategories.filter(c => isAdultCategory(c));
         setCategories(['Todos', ...regularCategories, ...(adultCategories.length > 0 ? ['🔞 Adulto'] : [])]);
@@ -63,7 +63,7 @@ const Movies = () => {
     fetchCategories();
   }, []);
 
-  // Fetch channels - only MOVIE content
+  // Fetch channels - only MOVIE content from active lists
   const fetchChannels = useCallback(async (reset = false, currentLength = 0) => {
     if (reset) {
       setLoading(true);
@@ -75,9 +75,8 @@ const Movies = () => {
     const from = reset ? 0 : currentLength;
 
     let query = supabase
-      .from('channels')
+      .from('active_channels' as any)
       .select('*')
-      .eq('active', true)
       .eq('content_type', 'MOVIE')
       .order('name')
       .range(from, from + PAGE_SIZE - 1);
@@ -100,7 +99,7 @@ const Movies = () => {
     }
     
     if (data) {
-      let filteredData = data as Channel[];
+      let filteredData = data as unknown as Channel[];
       
       // Filter by adult content
       if (selectedCategory === 'Todos') {
