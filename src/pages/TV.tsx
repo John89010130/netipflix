@@ -40,17 +40,17 @@ const TV = () => {
     return () => clearTimeout(timer);
   }, [searchQuery]);
 
-  // Fetch categories once - only TV content
+  // Fetch categories once - only TV content from active lists
   useEffect(() => {
     const fetchCategories = async () => {
       const { data, error } = await supabase
-        .from('channels')
+        .from('active_channels' as any)
         .select('category')
-        .eq('active', true)
         .eq('content_type', 'TV');
 
       if (!error && data) {
-        const uniqueCategories = [...new Set(data.map(c => c.category))].sort();
+        const channels = data as unknown as { category: string }[];
+        const uniqueCategories = [...new Set(channels.map(c => c.category))].sort();
         const regularCategories = uniqueCategories.filter(c => !isAdultCategory(c));
         const adultCategories = uniqueCategories.filter(c => isAdultCategory(c));
         setCategories(['Todos', ...regularCategories, ...(adultCategories.length > 0 ? ['🔞 Adulto'] : [])]);
@@ -60,13 +60,12 @@ const TV = () => {
     fetchCategories();
   }, []);
 
-  // Fetch total count - only TV content
+  // Fetch total count - only TV content from active lists
   useEffect(() => {
     const fetchCount = async () => {
       let query = supabase
-        .from('channels')
+        .from('active_channels' as any)
         .select('*', { count: 'exact', head: true })
-        .eq('active', true)
         .eq('content_type', 'TV');
 
       if (selectedCategory !== 'Todos' && selectedCategory !== '🔞 Adulto') {
@@ -91,11 +90,10 @@ const TV = () => {
 
     const from = reset ? 0 : currentLength;
 
-    // Fetch only TV content type
+    // Fetch only TV content type from active lists
     let query = supabase
-      .from('channels')
+      .from('active_channels' as any)
       .select('*')
-      .eq('active', true)
       .eq('content_type', 'TV')
       .range(from, from + PAGE_SIZE - 1);
 
@@ -117,7 +115,7 @@ const TV = () => {
     }
     
     if (data) {
-      let filteredData = data as Channel[];
+      let filteredData = data as unknown as Channel[];
       
       // Filter for adult/non-adult content only when "Todos" or "Adulto" is selected
       if (selectedCategory === 'Todos') {
