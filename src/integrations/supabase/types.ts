@@ -56,6 +56,7 @@ export type Database = {
           last_test_status: string | null
           last_tested_at: string | null
           logo_url: string | null
+          m3u_link_id: string | null
           name: string
           season_number: number | null
           series_title: string | null
@@ -73,6 +74,7 @@ export type Database = {
           last_test_status?: string | null
           last_tested_at?: string | null
           logo_url?: string | null
+          m3u_link_id?: string | null
           name: string
           season_number?: number | null
           series_title?: string | null
@@ -90,13 +92,22 @@ export type Database = {
           last_test_status?: string | null
           last_tested_at?: string | null
           logo_url?: string | null
+          m3u_link_id?: string | null
           name?: string
           season_number?: number | null
           series_title?: string | null
           stream_url?: string
           updated_at?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "channels_m3u_link_id_fkey"
+            columns: ["m3u_link_id"]
+            isOneToOne: false
+            referencedRelation: "m3u_links"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       client_profiles: {
         Row: {
@@ -194,6 +205,7 @@ export type Database = {
           id: string
           imported_at: string
           imported_by: string | null
+          is_active: boolean
           url: string
         }
         Insert: {
@@ -201,6 +213,7 @@ export type Database = {
           id?: string
           imported_at?: string
           imported_by?: string | null
+          is_active?: boolean
           url: string
         }
         Update: {
@@ -208,6 +221,7 @@ export type Database = {
           id?: string
           imported_at?: string
           imported_by?: string | null
+          is_active?: boolean
           url?: string
         }
         Relationships: []
