@@ -5,6 +5,58 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+// Delete channels in batches to avoid statement timeout
+async function deleteChannelsInBatches(
+  supabase: any,
+  linkId: string
+): Promise<number> {
+  const BATCH_SIZE = 500;
+  let totalDeleted = 0;
+  let hasMore = true;
+
+  while (hasMore) {
+    // First, get IDs of channels to delete
+    const { data: channelsToDelete, error: selectError } = await supabase
+      .from("channels")
+      .select("id")
+      .eq("m3u_link_id", linkId)
+      .limit(BATCH_SIZE);
+
+    if (selectError) {
+      console.error("Error selecting channels:", selectError);
+      throw new Error(selectError.message);
+    }
+
+    if (!channelsToDelete || channelsToDelete.length === 0) {
+      hasMore = false;
+      break;
+    }
+
+    const idsToDelete = (channelsToDelete as Array<{ id: string }>).map((c) => c.id);
+
+    // Delete this batch by IDs
+    const { error: deleteError, count } = await supabase
+      .from("channels")
+      .delete({ count: "exact" })
+      .in("id", idsToDelete);
+
+    if (deleteError) {
+      console.error("Error deleting batch:", deleteError);
+      throw new Error(deleteError.message);
+    }
+
+    totalDeleted += count || idsToDelete.length;
+    console.log(`Deleted batch of ${count || idsToDelete.length} channels, total: ${totalDeleted}`);
+
+    // If we got fewer than BATCH_SIZE, we're done
+    if (channelsToDelete.length < BATCH_SIZE) {
+      hasMore = false;
+    }
+  }
+
+  return totalDeleted;
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -59,24 +111,10 @@ Deno.serve(async (req) => {
       });
     }
 
-    console.log(`Deleting channels for m3u_link_id: ${linkId}`);
+    console.log(`Starting batch deletion for m3u_link_id: ${linkId}`);
 
-    // Delete all channels for this link in one operation using service role
-    // Service role bypasses RLS and has higher limits
-    const { error: deleteChannelsError, count: deletedChannels } = await supabase
-      .from("channels")
-      .delete({ count: "exact" })
-      .eq("m3u_link_id", linkId);
-
-    if (deleteChannelsError) {
-      console.error("Error deleting channels:", deleteChannelsError);
-      return new Response(JSON.stringify({ 
-        error: `Erro ao deletar canais: ${deleteChannelsError.message}` 
-      }), {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
+    // Delete channels in batches to avoid timeout
+    const deletedChannels = await deleteChannelsInBatches(supabase, linkId);
 
     console.log(`Deleted ${deletedChannels} channels, now deleting m3u_link...`);
 
@@ -100,7 +138,7 @@ Deno.serve(async (req) => {
 
     return new Response(JSON.stringify({ 
       success: true, 
-      deletedChannels: deletedChannels || 0 
+      deletedChannels: deletedChannels 
     }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
