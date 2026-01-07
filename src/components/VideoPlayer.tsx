@@ -161,6 +161,15 @@ const getUnderlyingUrl = (maybeProxied: string): string => {
   return extractUnderlyingFromProxy(maybeProxied) ?? maybeProxied;
 };
 
+interface NextEpisode {
+  id: string;
+  name: string;
+  stream_url: string;
+  poster?: string;
+  season: number;
+  episode: number;
+}
+
 interface VideoPlayerProps {
   src: string;
   title?: string;
@@ -169,9 +178,11 @@ interface VideoPlayerProps {
   contentType?: 'TV' | 'MOVIE' | 'SERIES';
   onClose?: () => void;
   autoPlay?: boolean;
+  nextEpisode?: NextEpisode | null;
+  onPlayNext?: (episode: NextEpisode) => void;
 }
 
-export const VideoPlayer = ({ src, title, poster, contentId, contentType, onClose, autoPlay = true }: VideoPlayerProps) => {
+export const VideoPlayer = ({ src, title, poster, contentId, contentType, onClose, autoPlay = true, nextEpisode, onPlayNext }: VideoPlayerProps) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const hlsRef = useRef<Hls | null>(null);
@@ -198,6 +209,8 @@ export const VideoPlayer = ({ src, title, poster, contentId, contentType, onClos
   const [historySaved, setHistorySaved] = useState(false);
   const [savedProgress, setSavedProgress] = useState<number | null>(null);
   const [showResumePrompt, setShowResumePrompt] = useState(false);
+  const [showNextEpisode, setShowNextEpisode] = useState(false);
+  const [nextEpisodeCountdown, setNextEpisodeCountdown] = useState(15);
   
   const { isAdmin, user } = useAuth();
 
@@ -700,6 +713,29 @@ export const VideoPlayer = ({ src, title, poster, contentId, contentType, onClos
     if (!video) return;
     setCurrentTime(video.currentTime);
     setProgress((video.currentTime / video.duration) * 100);
+    
+    // Check if we should show next episode prompt (15 seconds before end)
+    if (nextEpisode && onPlayNext && isFinite(video.duration) && video.duration > 30) {
+      const timeRemaining = video.duration - video.currentTime;
+      if (timeRemaining <= 15 && timeRemaining > 0 && !showNextEpisode) {
+        setShowNextEpisode(true);
+        setNextEpisodeCountdown(Math.ceil(timeRemaining));
+      } else if (showNextEpisode && timeRemaining > 0) {
+        setNextEpisodeCountdown(Math.ceil(timeRemaining));
+      }
+      
+      // Auto-play next episode when video ends
+      if (timeRemaining <= 0 && showNextEpisode) {
+        handlePlayNext();
+      }
+    }
+  };
+
+  const handlePlayNext = () => {
+    if (nextEpisode && onPlayNext) {
+      setShowNextEpisode(false);
+      onPlayNext(nextEpisode);
+    }
   };
 
   const handleLoadedMetadata = () => {
@@ -937,13 +973,52 @@ export const VideoPlayer = ({ src, title, poster, contentId, contentType, onClos
         </div>
 
         {/* Center Play Button */}
-        {!isPlaying && !isLoading && !error && (
+        {!isPlaying && !isLoading && !error && !showNextEpisode && (
           <button
             onClick={togglePlay}
             className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 h-20 w-20 rounded-full bg-primary/90 flex items-center justify-center transition-transform hover:scale-110"
           >
             <Play className="h-10 w-10 fill-current ml-1" />
           </button>
+        )}
+
+        {/* Next Episode Prompt */}
+        {showNextEpisode && nextEpisode && (
+          <div className="absolute bottom-24 right-4 md:right-8 animate-fade-in z-20">
+            <div className="bg-card/95 backdrop-blur-md border border-border rounded-xl p-4 shadow-2xl max-w-sm">
+              <p className="text-sm text-muted-foreground mb-2">Próximo episódio em {nextEpisodeCountdown}s</p>
+              <div className="flex items-center gap-3">
+                {nextEpisode.poster && (
+                  <img 
+                    src={nextEpisode.poster} 
+                    alt={nextEpisode.name}
+                    className="w-16 h-10 object-cover rounded"
+                  />
+                )}
+                <div className="flex-1 min-w-0">
+                  <p className="font-semibold text-sm line-clamp-1">
+                    S{nextEpisode.season}:E{nextEpisode.episode}
+                  </p>
+                  <p className="text-xs text-muted-foreground line-clamp-1">{nextEpisode.name}</p>
+                </div>
+              </div>
+              <div className="flex gap-2 mt-3">
+                <button
+                  onClick={() => setShowNextEpisode(false)}
+                  className="flex-1 px-3 py-2 text-sm rounded-lg border border-border text-muted-foreground hover:text-foreground hover:border-foreground transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={handlePlayNext}
+                  className="flex-1 px-3 py-2 text-sm rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors flex items-center justify-center gap-2"
+                >
+                  <SkipForward className="h-4 w-4" />
+                  Próximo
+                </button>
+              </div>
+            </div>
+          </div>
         )}
 
         {/* Bottom Controls */}

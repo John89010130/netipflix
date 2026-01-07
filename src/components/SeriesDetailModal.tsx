@@ -16,6 +16,13 @@ interface Episode {
   season_number: number | null;
   episode_number: number | null;
   series_title: string | null;
+  parsedSeason: number;
+  parsedEpisode: number;
+}
+
+interface WatchProgress {
+  content_id: string;
+  progress: number;
 }
 
 interface SeriesDetailModalProps {
@@ -26,14 +33,15 @@ interface SeriesDetailModalProps {
 
 // Parse episode number from name if not in database
 const parseEpisodeNumber = (name: string, dbEpisodeNum: number | null): number => {
+  // Database value of 0 means not set, so ignore it
   if (dbEpisodeNum && dbEpisodeNum > 0) return dbEpisodeNum;
   
   // Try to extract from patterns like "S01E09", "E09", "Ep 09", "Episode 9"
   const patterns = [
-    /[Ss]\d+[Ee](\d+)/,      // S01E09
-    /[Ee][Pp]?\s*(\d+)/i,    // E09, Ep09, Ep 09
-    /[Ee]pisode\s*(\d+)/i,   // Episode 9
-    /\s(\d{1,3})\s*[-–]\s*/  // " 09 - Title"
+    /[Ss]\d+\s*[Ee](\d+)/,      // S01E09 or S01 E09
+    /[Ee][Pp]?\s*(\d+)/i,       // E09, Ep09, Ep 09
+    /[Ee]pisode\s*(\d+)/i,      // Episode 9
+    /\s(\d{1,3})\s*[-–]\s*/     // " 09 - Title"
   ];
   
   for (const pattern of patterns) {
@@ -64,6 +72,8 @@ export const SeriesDetailModal = ({ item, onClose, onPlay }: SeriesDetailModalPr
   const [expandedSeason, setExpandedSeason] = useState<number | null>(null);
   const [isInList, setIsInList] = useState(false);
   const [isAddingToList, setIsAddingToList] = useState(false);
+  const [watchProgress, setWatchProgress] = useState<Map<string, number>>(new Map());
+  const [continueWatchingEpisode, setContinueWatchingEpisode] = useState<Episode | null>(null);
 
   // Extract series title from item
   const seriesTitle = item.title.replace(/\s*\(\d{4}\)\s*/, '').replace(/\s*[Ss]\d+[Ee]\d+.*$/, '').trim();
@@ -90,13 +100,25 @@ export const SeriesDetailModal = ({ item, onClose, onPlay }: SeriesDetailModalPr
         // Filter adult content
         const safeData = (data as any[]).filter(ep => !isAdultCategory(ep.category));
         
-        // Sort episodes properly
-        const sortedEpisodes = safeData
-          .map(ep => ({
-            ...ep,
-            parsedSeason: parseSeasonNumber(ep.name, ep.season_number),
-            parsedEpisode: parseEpisodeNumber(ep.name, ep.episode_number),
-          }))
+        // Parse and sort episodes
+        const parsedEpisodes = safeData.map(ep => ({
+          ...ep,
+          parsedSeason: parseSeasonNumber(ep.name, ep.season_number),
+          parsedEpisode: parseEpisodeNumber(ep.name, ep.episode_number),
+        }));
+        
+        // Deduplicate: keep only one episode per season+episode combination
+        const uniqueEpisodes = new Map<string, Episode>();
+        parsedEpisodes.forEach(ep => {
+          const key = `S${ep.parsedSeason}E${ep.parsedEpisode}`;
+          // Keep first occurrence or replace if current has a better name (shorter usually means cleaner)
+          if (!uniqueEpisodes.has(key) || ep.name.length < uniqueEpisodes.get(key)!.name.length) {
+            uniqueEpisodes.set(key, ep);
+          }
+        });
+        
+        // Sort episodes
+        const sortedEpisodes = Array.from(uniqueEpisodes.values())
           .sort((a, b) => {
             if (a.parsedSeason !== b.parsedSeason) {
               return a.parsedSeason - b.parsedSeason;
@@ -110,27 +132,55 @@ export const SeriesDetailModal = ({ item, onClose, onPlay }: SeriesDetailModalPr
         if (sortedEpisodes.length > 0) {
           setExpandedSeason(sortedEpisodes[0].parsedSeason);
         }
+        
+        // Fetch watch progress for this user
+        if (user?.id && sortedEpisodes.length > 0) {
+          const episodeIds = sortedEpisodes.map(ep => ep.id);
+          const { data: progressData } = await supabase
+            .from('watch_history')
+            .select('content_id, progress')
+            .eq('user_id', user.id)
+            .in('content_id', episodeIds);
+          
+          if (progressData && progressData.length > 0) {
+            const progressMap = new Map<string, number>();
+            progressData.forEach(p => progressMap.set(p.content_id, p.progress || 0));
+            setWatchProgress(progressMap);
+            
+            // Find the episode to continue watching (most recently watched with progress > 0)
+            const watchedEpisodes = sortedEpisodes.filter(ep => (progressMap.get(ep.id) || 0) > 10);
+            if (watchedEpisodes.length > 0) {
+              // Get the one with highest progress that isn't finished (< 90% assuming 45min episodes)
+              const notFinished = watchedEpisodes.find(ep => {
+                const progress = progressMap.get(ep.id) || 0;
+                return progress < 2700; // Less than 45 min = likely not finished
+              });
+              if (notFinished) {
+                setContinueWatchingEpisode(notFinished);
+                setExpandedSeason(notFinished.parsedSeason);
+              }
+            }
+          }
+        }
       }
       
       setLoading(false);
     };
 
     fetchEpisodes();
-  }, [seriesTitle]);
+  }, [seriesTitle, user?.id]);
 
   // Get unique seasons
-  const seasons = [...new Set(episodes.map(ep => 
-    parseSeasonNumber(ep.name, ep.season_number)
-  ))].sort((a, b) => a - b);
+  const seasons = [...new Set(episodes.map(ep => ep.parsedSeason))].sort((a, b) => a - b);
 
   const getEpisodesForSeason = (season: number) => {
-    return episodes
-      .filter(ep => parseSeasonNumber(ep.name, ep.season_number) === season)
-      .sort((a, b) => {
-        const epA = parseEpisodeNumber(a.name, a.episode_number);
-        const epB = parseEpisodeNumber(b.name, b.episode_number);
-        return epA - epB;
-      });
+    return episodes.filter(ep => ep.parsedSeason === season);
+  };
+
+  const formatProgress = (seconds: number): string => {
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
   const handleAddToList = async () => {
@@ -175,10 +225,10 @@ export const SeriesDetailModal = ({ item, onClose, onPlay }: SeriesDetailModalPr
   };
 
   const formatEpisodeName = (episode: Episode) => {
-    const epNum = parseEpisodeNumber(episode.name, episode.episode_number);
+    const epNum = episode.parsedEpisode;
     // Clean title from patterns
     let cleanName = episode.name
-      .replace(/^.*[Ss]\d+[Ee]\d+\s*[-–]?\s*/i, '')
+      .replace(/^.*[Ss]\d+\s*[Ee]\d+\s*[-–]?\s*/i, '')
       .replace(/^[Ee][Pp]?\s*\d+\s*[-–]?\s*/i, '')
       .trim();
     
@@ -248,9 +298,30 @@ export const SeriesDetailModal = ({ item, onClose, onPlay }: SeriesDetailModalPr
 
             {/* Action Buttons */}
             <div className="flex flex-wrap items-center gap-3">
-              {episodes.length > 0 && (
+              {/* Continue Watching Button - shows if user has progress */}
+              {continueWatchingEpisode && (
                 <Button
                   variant="play"
+                  size="lg"
+                  onClick={() => {
+                    onPlay({
+                      id: continueWatchingEpisode.id,
+                      name: continueWatchingEpisode.name,
+                      stream_url: continueWatchingEpisode.stream_url,
+                      poster: continueWatchingEpisode.logo_url || item.poster_url,
+                    });
+                  }}
+                  className="gap-2"
+                >
+                  <Play className="h-5 w-5 fill-current" />
+                  Continuar S{continueWatchingEpisode.parsedSeason}:E{continueWatchingEpisode.parsedEpisode}
+                </Button>
+              )}
+              
+              {/* Play from beginning button */}
+              {episodes.length > 0 && (
+                <Button
+                  variant={continueWatchingEpisode ? "glass" : "play"}
                   size="lg"
                   onClick={() => {
                     const firstEp = getEpisodesForSeason(seasons[0])?.[0];
@@ -266,7 +337,7 @@ export const SeriesDetailModal = ({ item, onClose, onPlay }: SeriesDetailModalPr
                   className="gap-2"
                 >
                   <Play className="h-5 w-5 fill-current" />
-                  Assistir S1:E1
+                  {continueWatchingEpisode ? 'Do início' : 'Assistir S1:E1'}
                 </Button>
               )}
               
@@ -360,12 +431,28 @@ export const SeriesDetailModal = ({ item, onClose, onPlay }: SeriesDetailModalPr
 
                           {/* Episode Info */}
                           <div className="flex-1 min-w-0">
-                            <p className="font-medium line-clamp-1">
-                              {formatEpisodeName(episode)}
-                            </p>
+                            <div className="flex items-center gap-2">
+                              <p className="font-medium line-clamp-1">
+                                {formatEpisodeName(episode)}
+                              </p>
+                              {(watchProgress.get(episode.id) || 0) > 10 && (
+                                <span className="text-xs px-2 py-0.5 rounded-full bg-primary/20 text-primary">
+                                  {formatProgress(watchProgress.get(episode.id) || 0)}
+                                </span>
+                              )}
+                            </div>
                             <p className="text-sm text-muted-foreground mt-1">
-                              Temporada {season}, Episódio {parseEpisodeNumber(episode.name, episode.episode_number)}
+                              Temporada {episode.parsedSeason}, Episódio {episode.parsedEpisode}
                             </p>
+                            {/* Progress bar */}
+                            {(watchProgress.get(episode.id) || 0) > 10 && (
+                              <div className="mt-2 h-1 w-full bg-muted/50 rounded-full overflow-hidden">
+                                <div 
+                                  className="h-full bg-primary rounded-full" 
+                                  style={{ width: `${Math.min(95, Math.max(5, (watchProgress.get(episode.id) || 0) / 27))}%` }}
+                                />
+                              </div>
+                            )}
                           </div>
                         </button>
                       ))}

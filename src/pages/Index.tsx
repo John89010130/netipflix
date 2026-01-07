@@ -35,9 +35,27 @@ interface WatchHistoryItem {
   progress?: number;
 }
 
+interface SeriesEpisode {
+  id: string;
+  name: string;
+  stream_url: string;
+  poster?: string;
+  season: number;
+  episode: number;
+}
+
 const Index = () => {
   const { user } = useAuth();
-  const [currentVideo, setCurrentVideo] = useState<{ src: string; title: string; poster?: string; contentId?: string; contentType?: 'TV' | 'MOVIE' | 'SERIES' } | null>(null);
+  const [currentVideo, setCurrentVideo] = useState<{ 
+    src: string; 
+    title: string; 
+    poster?: string; 
+    contentId?: string; 
+    contentType?: 'TV' | 'MOVIE' | 'SERIES';
+    nextEpisode?: SeriesEpisode | null;
+    allEpisodes?: SeriesEpisode[];
+    currentEpisodeIndex?: number;
+  } | null>(null);
   const [selectedContent, setSelectedContent] = useState<ContentItem | null>(null);
   const [selectedSeries, setSelectedSeries] = useState<ContentItem | null>(null);
   const [tvChannels, setTVChannels] = useState<Channel[]>([]);
@@ -532,14 +550,76 @@ const Index = () => {
         <SeriesDetailModal
           item={selectedSeries}
           onClose={() => setSelectedSeries(null)}
-          onPlay={(episode) => {
+          onPlay={async (episode) => {
             setSelectedSeries(null);
+            
+            // Parse episode info from the name
+            const seasonMatch = episode.name.match(/[Ss](\d+)/);
+            const episodeMatch = episode.name.match(/[Ss]\d+\s*[Ee](\d+)/);
+            const currentSeason = seasonMatch ? parseInt(seasonMatch[1]) : 1;
+            const currentEpisode = episodeMatch ? parseInt(episodeMatch[1]) : 1;
+            
+            // Fetch all episodes of this series to determine next episode
+            const seriesTitle = selectedSeries.title.replace(/\s*\(\d{4}\)\s*/, '').replace(/\s*[Ss]\d+[Ee]\d+.*$/, '').trim();
+            
+            const { data: allEpisodes } = await supabase
+              .from('active_channels' as any)
+              .select('id, name, stream_url, logo_url, season_number, episode_number, series_title')
+              .eq('content_type', 'SERIES')
+              .or(`series_title.ilike.%${seriesTitle}%,name.ilike.%${seriesTitle}%`)
+              .limit(500);
+            
+            let nextEpisode: SeriesEpisode | null = null;
+            let allEpisodesList: SeriesEpisode[] = [];
+            
+            if (allEpisodes) {
+              // Parse and deduplicate episodes
+              const parsed = (allEpisodes as any[]).map(ep => {
+                const sMatch = ep.name.match(/[Ss](\d+)/);
+                const eMatch = ep.name.match(/[Ss]\d+\s*[Ee](\d+)/);
+                return {
+                  id: ep.id,
+                  name: ep.name,
+                  stream_url: ep.stream_url,
+                  poster: ep.logo_url,
+                  season: sMatch ? parseInt(sMatch[1]) : 1,
+                  episode: eMatch ? parseInt(eMatch[1]) : 999,
+                };
+              });
+              
+              // Deduplicate and sort
+              const uniqueMap = new Map<string, SeriesEpisode>();
+              parsed.forEach(ep => {
+                const key = `S${ep.season}E${ep.episode}`;
+                if (!uniqueMap.has(key)) uniqueMap.set(key, ep);
+              });
+              
+              allEpisodesList = Array.from(uniqueMap.values()).sort((a, b) => {
+                if (a.season !== b.season) return a.season - b.season;
+                return a.episode - b.episode;
+              });
+              
+              // Find current and next episode
+              const currentIndex = allEpisodesList.findIndex(
+                ep => ep.season === currentSeason && ep.episode === currentEpisode
+              );
+              
+              if (currentIndex >= 0 && currentIndex < allEpisodesList.length - 1) {
+                nextEpisode = allEpisodesList[currentIndex + 1];
+              }
+            }
+            
             setCurrentVideo({
               src: episode.stream_url,
               title: episode.name,
               poster: episode.poster,
               contentId: episode.id,
               contentType: 'SERIES',
+              nextEpisode,
+              allEpisodes: allEpisodesList,
+              currentEpisodeIndex: allEpisodesList.findIndex(
+                ep => ep.season === currentSeason && ep.episode === currentEpisode
+              ),
             });
           }}
         />
@@ -554,6 +634,28 @@ const Index = () => {
           contentId={currentVideo.contentId}
           contentType={currentVideo.contentType}
           onClose={() => setCurrentVideo(null)}
+          nextEpisode={currentVideo.nextEpisode}
+          onPlayNext={(nextEp) => {
+            if (currentVideo.allEpisodes) {
+              const nextIndex = currentVideo.allEpisodes.findIndex(
+                ep => ep.id === nextEp.id
+              );
+              const futureEpisode = nextIndex < currentVideo.allEpisodes.length - 1 
+                ? currentVideo.allEpisodes[nextIndex + 1] 
+                : null;
+              
+              setCurrentVideo({
+                src: nextEp.stream_url,
+                title: nextEp.name,
+                poster: nextEp.poster,
+                contentId: nextEp.id,
+                contentType: 'SERIES',
+                nextEpisode: futureEpisode,
+                allEpisodes: currentVideo.allEpisodes,
+                currentEpisodeIndex: nextIndex,
+              });
+            }
+          }}
         />
       )}
     </div>
