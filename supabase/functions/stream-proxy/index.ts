@@ -99,6 +99,22 @@ serve(async (req) => {
         { name: 'browser_mp4_range', headers: buildHeaders({ userAgent: USER_AGENTS.browser, includeRange: true, forceRange: true }) },
         { name: 'browser_mp4_no_range', headers: buildHeaders({ userAgent: USER_AGENTS.browser, includeRange: false, forceRange: false }) },
       );
+
+      // Alguns provedores retornam "404" quando faltam Origin/Referer (anti-leech).
+      // Tentativa extra com Origin + Referer do próprio host do stream.
+      try {
+        const origin = new URL(decodedUrl).origin;
+        attempts.push({
+          name: 'browser_mp4_referer',
+          headers: {
+            ...(buildHeaders({ userAgent: USER_AGENTS.browser, includeRange: true, forceRange: true }) as Record<string, string>),
+            'Origin': origin,
+            'Referer': `${origin}/`,
+          },
+        });
+      } catch {
+        // ignore
+      }
     } else {
       // Outros (m3u8, etc)
       attempts.push(
