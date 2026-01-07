@@ -5,6 +5,7 @@ import { ContentCarousel } from '@/components/ContentCarousel';
 import { ChannelCard } from '@/components/ChannelCard';
 import { VideoPlayer } from '@/components/VideoPlayer';
 import { ContentDetailModal } from '@/components/ContentDetailModal';
+import { SeriesDetailModal } from '@/components/SeriesDetailModal';
 import { Button } from '@/components/ui/button';
 import { ChevronLeft, ChevronRight, Tv, Film, PlayCircle, History } from 'lucide-react';
 import { ContentItem } from '@/types';
@@ -38,6 +39,7 @@ const Index = () => {
   const { user } = useAuth();
   const [currentVideo, setCurrentVideo] = useState<{ src: string; title: string; poster?: string; contentId?: string; contentType?: 'TV' | 'MOVIE' | 'SERIES' } | null>(null);
   const [selectedContent, setSelectedContent] = useState<ContentItem | null>(null);
+  const [selectedSeries, setSelectedSeries] = useState<ContentItem | null>(null);
   const [tvChannels, setTVChannels] = useState<Channel[]>([]);
   const [filmChannels, setFilmChannels] = useState<Channel[]>([]);
   const [seriesChannels, setSeriesChannels] = useState<Channel[]>([]);
@@ -255,6 +257,21 @@ const Index = () => {
     });
   };
 
+  const handleMoreInfo = (item: ContentItem) => {
+    // Check if it's a series based on content type or title pattern
+    const isSeries = item.type === 'MOVIE' && (
+      item.title.match(/[Ss]\d+[Ee]\d+/) ||
+      item.category?.toLowerCase().includes('série') ||
+      item.category?.toLowerCase().includes('series')
+    );
+    
+    if (isSeries) {
+      setSelectedSeries(item);
+    } else {
+      setSelectedContent(item);
+    }
+  };
+
   const handlePlayChannel = (channel: Channel) => {
     setCurrentVideo({
       src: channel.stream_url,
@@ -336,6 +353,7 @@ const Index = () => {
               title="Assistido Recentemente"
               items={recentlyWatched}
               onPlay={handlePlay}
+              onMoreInfo={handleMoreInfo}
             />
           </section>
         )}
@@ -370,6 +388,7 @@ const Index = () => {
                     title={category}
                     items={filmsByCategory[category]}
                     onPlay={handlePlay}
+                    onMoreInfo={handleMoreInfo}
                   />
                 )
               ))}
@@ -504,6 +523,24 @@ const Index = () => {
           onPlay={(item) => {
             setSelectedContent(null);
             handlePlay(item);
+          }}
+        />
+      )}
+
+      {/* Series Detail Modal */}
+      {selectedSeries && (
+        <SeriesDetailModal
+          item={selectedSeries}
+          onClose={() => setSelectedSeries(null)}
+          onPlay={(episode) => {
+            setSelectedSeries(null);
+            setCurrentVideo({
+              src: episode.stream_url,
+              title: episode.name,
+              poster: episode.poster,
+              contentId: episode.id,
+              contentType: 'SERIES',
+            });
           }}
         />
       )}
