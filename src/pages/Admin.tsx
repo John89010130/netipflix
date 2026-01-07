@@ -6,6 +6,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Switch } from '@/components/ui/switch';
+import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from 'sonner';
@@ -52,6 +54,14 @@ interface M3uLink {
   url: string;
   channels_imported: number;
   imported_at: string;
+  is_active: boolean;
+}
+
+interface ImportProgress {
+  stage: 'downloading' | 'parsing' | 'checking' | 'inserting' | 'done';
+  message: string;
+  current?: number;
+  total?: number;
 }
 
 interface TestJob {
@@ -78,6 +88,7 @@ const Admin = () => {
   const [hasMore, setHasMore] = useState(true);
   const [m3uContent, setM3uContent] = useState('');
   const [importing, setImporting] = useState(false);
+  const [importProgress, setImportProgress] = useState<ImportProgress | null>(null);
   const [testJob, setTestJob] = useState<TestJob | null>(null);
   const [testResults, setTestResults] = useState<Map<string, StreamTestResult>>(new Map());
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
@@ -181,16 +192,53 @@ const Admin = () => {
     setLoadingLinks(false);
   };
 
-  const saveM3uLink = async (url: string, channelsImported: number) => {
-    const { error } = await supabase
+  const saveM3uLink = async (url: string, channelsImported: number): Promise<string | null> => {
+    const { data, error } = await supabase
       .from('m3u_links')
-      .insert({ url, channels_imported: channelsImported });
+      .insert({ url, channels_imported: channelsImported })
+      .select('id')
+      .single();
     
     if (error) {
       console.error('Error saving m3u link:', error);
+      return null;
     } else {
       fetchM3uLinks();
+      return data?.id || null;
     }
+  };
+
+  const toggleM3uLinkActive = async (linkId: string, isActive: boolean) => {
+    // First update the link status
+    const { error: linkError } = await supabase
+      .from('m3u_links')
+      .update({ is_active: isActive })
+      .eq('id', linkId);
+    
+    if (linkError) {
+      toast.error('Erro ao atualizar status da lista');
+      return;
+    }
+
+    // Then update all channels associated with this link
+    const { error: channelsError, count } = await supabase
+      .from('channels')
+      .update({ active: isActive })
+      .eq('m3u_link_id', linkId);
+    
+    if (channelsError) {
+      toast.error('Erro ao atualizar canais');
+      return;
+    }
+
+    toast.success(isActive 
+      ? `Lista e ${count || 0} canais ativados!` 
+      : `Lista e ${count || 0} canais desativados!`
+    );
+    
+    fetchM3uLinks();
+    fetchChannelCounts();
+    fetchChannels(true);
   };
 
   const fetchChannels = async (reset = false) => {
@@ -454,62 +502,120 @@ const Admin = () => {
     }
 
     setImporting(true);
+    setImportProgress({ stage: 'downloading', message: 'Iniciando...' });
     
     try {
       let inserted = 0;
       let importedUrl = '';
+      let content = m3uContent;
 
-      // If it's a URL, use importFromUrl
+      // If it's a URL, download the content first
       if (m3uContent.trim().startsWith('http')) {
         importedUrl = convertToRawUrl(m3uContent.trim());
-        inserted = await importFromUrl(m3uContent.trim());
-      } else {
-        // Direct content paste
-        const parsedChannels = parseM3U(m3uContent);
+        setImportProgress({ stage: 'downloading', message: 'Baixando lista M3U...' });
         
-        if (parsedChannels.length === 0) {
-          toast.error('Nenhum canal encontrado no M3U. Verifique o formato.');
-          return;
-        }
-
-        // Get all existing stream URLs to avoid duplicates
-        const existingUrls = await fetchAllStreamUrls();
-        const newChannels = parsedChannels.filter(c => !existingUrls.has(c.stream_url));
+        const response = await fetch(`${SUPABASE_URL}/functions/v1/stream-proxy?url=${encodeURIComponent(importedUrl)}`);
         
-        if (newChannels.length === 0) {
-          toast.info('Todos os canais já existem no banco.');
-          return;
+        if (!response.ok) {
+          throw new Error(`Erro ao buscar M3U: ${response.status}`);
         }
+        
+        content = await response.text();
+      }
 
-        const batchSize = 50;
-        for (let i = 0; i < newChannels.length; i += batchSize) {
-          const batch = newChannels.slice(i, i + batchSize);
-          const { error } = await supabase.from('channels').insert(batch);
-          
-          if (error) {
-            console.error('Batch insert error:', error);
-          } else {
-            inserted += batch.length;
-          }
+      // Parse the M3U content
+      setImportProgress({ stage: 'parsing', message: 'Analisando canais...' });
+      const parsedChannels = parseM3U(content);
+      
+      if (parsedChannels.length === 0) {
+        toast.error('Nenhum canal encontrado no M3U. Verifique o formato.');
+        setImportProgress(null);
+        setImporting(false);
+        return;
+      }
+
+      setImportProgress({ 
+        stage: 'parsing', 
+        message: `${parsedChannels.length} canais encontrados` 
+      });
+
+      // Check for duplicates
+      setImportProgress({ stage: 'checking', message: 'Verificando duplicados...' });
+      const existingUrls = await fetchAllStreamUrls();
+      const newChannels = parsedChannels.filter(c => !existingUrls.has(c.stream_url));
+      
+      if (newChannels.length === 0) {
+        toast.info('Todos os canais já existem no banco.');
+        setImportProgress(null);
+        setImporting(false);
+        return;
+      }
+
+      setImportProgress({ 
+        stage: 'checking', 
+        message: `${newChannels.length} novos canais para importar` 
+      });
+
+      // Save the M3U link first to get the ID
+      let linkId: string | null = null;
+      if (importedUrl) {
+        linkId = await saveM3uLink(importedUrl, newChannels.length);
+      }
+
+      // Insert in batches with progress
+      const batchSize = 50;
+      const totalBatches = Math.ceil(newChannels.length / batchSize);
+
+      for (let i = 0; i < newChannels.length; i += batchSize) {
+        const batch = newChannels.slice(i, i + batchSize);
+        const currentBatch = Math.floor(i / batchSize) + 1;
+        
+        setImportProgress({ 
+          stage: 'inserting', 
+          message: `Inserindo canais...`,
+          current: inserted + batch.length,
+          total: newChannels.length
+        });
+
+        // Add m3u_link_id to each channel if we have one
+        const batchWithLink = linkId 
+          ? batch.map(c => ({ ...c, m3u_link_id: linkId }))
+          : batch;
+
+        const { error } = await supabase.from('channels').insert(batchWithLink);
+        
+        if (error) {
+          console.error('Batch insert error:', error);
+        } else {
+          inserted += batch.length;
         }
       }
 
-      // Save the M3U link to history if it was a URL
-      if (importedUrl && inserted > 0) {
-        await saveM3uLink(importedUrl, inserted);
+      // Update link with actual inserted count
+      if (linkId && inserted !== newChannels.length) {
+        await supabase
+          .from('m3u_links')
+          .update({ channels_imported: inserted })
+          .eq('id', linkId);
       }
+
+      setImportProgress({ stage: 'done', message: `${inserted} canais importados!` });
 
       if (inserted > 0) {
         toast.success(`${inserted} novos canais importados!`);
       }
       
       setM3uContent('');
-      fetchChannels();
+      fetchChannels(true);
+      fetchChannelCounts();
     } catch (error) {
       console.error('Import error:', error);
       toast.error('Erro ao importar M3U. Tente colar o conteúdo diretamente.');
     } finally {
-      setImporting(false);
+      setTimeout(() => {
+        setImporting(false);
+        setImportProgress(null);
+      }, 2000);
     }
   };
 
@@ -1177,6 +1283,29 @@ const Admin = () => {
                     rows={10}
                     className="font-mono text-sm"
                   />
+                  {/* Import Progress */}
+                  {importProgress && (
+                    <div className="p-4 bg-muted/50 rounded-lg space-y-3">
+                      <div className="flex items-center gap-3">
+                        <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                        <div className="flex-1">
+                          <p className="font-medium text-sm">{importProgress.message}</p>
+                          {importProgress.current !== undefined && importProgress.total !== undefined && (
+                            <p className="text-xs text-muted-foreground">
+                              {importProgress.current} de {importProgress.total}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                      {importProgress.current !== undefined && importProgress.total !== undefined && (
+                        <Progress 
+                          value={(importProgress.current / importProgress.total) * 100} 
+                          className="h-2"
+                        />
+                      )}
+                    </div>
+                  )}
+
                   <div className="flex gap-4">
                     <Button
                       onClick={handleImportM3U}
@@ -1192,6 +1321,7 @@ const Admin = () => {
                     <Button
                       variant="outline"
                       onClick={() => setM3uContent('')}
+                      disabled={importing}
                     >
                       Limpar
                     </Button>
@@ -1224,6 +1354,7 @@ const Admin = () => {
                       <table className="w-full text-sm">
                         <thead>
                           <tr className="border-b border-border">
+                            <th className="text-center py-3 px-2 font-medium">Ativo</th>
                             <th className="text-left py-3 px-2 font-medium">URL</th>
                             <th className="text-center py-3 px-2 font-medium">Canais</th>
                             <th className="text-center py-3 px-2 font-medium">Data</th>
@@ -1232,14 +1363,26 @@ const Admin = () => {
                         </thead>
                         <tbody>
                           {usedM3uLinks.map((link) => (
-                            <tr key={link.id} className="border-b border-border/50 hover:bg-secondary/30">
+                            <tr 
+                              key={link.id} 
+                              className={`border-b border-border/50 hover:bg-secondary/30 ${!link.is_active ? 'opacity-60' : ''}`}
+                            >
+                              <td className="text-center py-3 px-2">
+                                <Switch
+                                  checked={link.is_active}
+                                  onCheckedChange={(checked) => toggleM3uLinkActive(link.id, checked)}
+                                  title={link.is_active ? 'Desativar todos os canais desta lista' : 'Ativar todos os canais desta lista'}
+                                />
+                              </td>
                               <td className="py-3 px-2">
-                                <code className="text-xs bg-muted px-2 py-1 rounded truncate block max-w-[400px]">
+                                <code className="text-xs bg-muted px-2 py-1 rounded truncate block max-w-[350px]">
                                   {link.url}
                                 </code>
                               </td>
                               <td className="text-center py-3 px-2">
-                                <Badge variant="secondary">{link.channels_imported}</Badge>
+                                <Badge variant={link.is_active ? 'secondary' : 'outline'}>
+                                  {link.channels_imported}
+                                </Badge>
                               </td>
                               <td className="text-center py-3 px-2 text-muted-foreground">
                                 {new Date(link.imported_at).toLocaleDateString('pt-BR', {
