@@ -21,7 +21,8 @@ import {
   Film,
   AlertCircle,
   Users,
-  MessageCircle
+  MessageCircle,
+  FileUp
 } from 'lucide-react';
 import { Navigate } from 'react-router-dom';
 import { AdminClients } from '@/components/admin/AdminClients';
@@ -87,6 +88,7 @@ const Admin = () => {
   const [allCategories, setAllCategories] = useState<string[]>([]);
   const [selectedDeleteCategory, setSelectedDeleteCategory] = useState<string>('');
   const listRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const PAGE_SIZE = 100;
 
   // Poll for test job status
@@ -1113,10 +1115,61 @@ const Admin = () => {
                     Importar Lista M3U
                   </CardTitle>
                   <CardDescription>
-                    Cole o conteúdo de um arquivo M3U ou uma URL direta
+                    Faça upload de um arquivo M3U, cole o conteúdo ou uma URL direta
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
+                  {/* File Upload */}
+                  <div className="border-2 border-dashed border-border rounded-lg p-6 text-center hover:border-primary/50 transition-colors">
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept=".m3u,.m3u8,.txt"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          const reader = new FileReader();
+                          reader.onload = (event) => {
+                            const content = event.target?.result as string;
+                            setM3uContent(content);
+                            toast.success(`Arquivo "${file.name}" carregado!`);
+                          };
+                          reader.onerror = () => {
+                            toast.error('Erro ao ler o arquivo');
+                          };
+                          reader.readAsText(file);
+                        }
+                        // Reset input so same file can be selected again
+                        e.target.value = '';
+                      }}
+                      className="hidden"
+                    />
+                    <FileUp className="h-10 w-10 mx-auto mb-3 text-muted-foreground" />
+                    <p className="text-sm text-muted-foreground mb-2">
+                      Arraste um arquivo ou clique para selecionar
+                    </p>
+                    <Button
+                      variant="outline"
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={importing}
+                    >
+                      <Upload className="h-4 w-4 mr-2" />
+                      Selecionar Arquivo M3U
+                    </Button>
+                    <p className="text-xs text-muted-foreground mt-2">
+                      Formatos aceitos: .m3u, .m3u8, .txt
+                    </p>
+                  </div>
+
+                  <div className="relative">
+                    <div className="absolute inset-0 flex items-center">
+                      <span className="w-full border-t border-border" />
+                    </div>
+                    <div className="relative flex justify-center text-xs uppercase">
+                      <span className="bg-card px-2 text-muted-foreground">ou cole o conteúdo</span>
+                    </div>
+                  </div>
+
                   <Textarea
                     placeholder="Cole aqui o conteúdo M3U ou a URL do arquivo (ex: https://raw.githubusercontent.com/...)"
                     value={m3uContent}
