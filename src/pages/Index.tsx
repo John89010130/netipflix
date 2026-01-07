@@ -5,12 +5,13 @@ import { ContentCarousel } from '@/components/ContentCarousel';
 import { ChannelCard } from '@/components/ChannelCard';
 import { VideoPlayer } from '@/components/VideoPlayer';
 import { Button } from '@/components/ui/button';
-import { ChevronLeft, ChevronRight, Tv, Film, PlayCircle } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Tv, Film, PlayCircle, History } from 'lucide-react';
 import { ContentItem } from '@/types';
 import { supabase } from '@/integrations/supabase/client';
 import { isAdultCategory } from '@/components/AdultContentGate';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Link } from 'react-router-dom';
+import { useAuth } from '@/contexts/AuthContext';
 
 interface Channel {
   id: string;
@@ -21,22 +22,145 @@ interface Channel {
   stream_url: string;
   active: boolean;
   content_type: string;
+  series_title?: string | null;
+  created_at?: string;
+}
+
+interface WatchHistoryItem {
+  content_id: string;
+  content_type: string;
+  watched_at: string;
 }
 
 const Index = () => {
+  const { user } = useAuth();
   const [currentVideo, setCurrentVideo] = useState<{ src: string; title: string; poster?: string } | null>(null);
   const [tvChannels, setTVChannels] = useState<Channel[]>([]);
   const [filmChannels, setFilmChannels] = useState<Channel[]>([]);
   const [seriesChannels, setSeriesChannels] = useState<Channel[]>([]);
+  const [heroItems, setHeroItems] = useState<ContentItem[]>([]);
+  const [recentlyWatched, setRecentlyWatched] = useState<ContentItem[]>([]);
   const [loading, setLoading] = useState(true);
   const tvScrollRef = useRef<HTMLDivElement>(null);
   const seriesScrollRef = useRef<HTMLDivElement>(null);
+
+  // Fetch recently watched content
+  useEffect(() => {
+    const fetchRecentlyWatched = async () => {
+      if (!user?.id) return;
+
+      try {
+        // Fetch watch history
+        const { data: historyData, error: historyError } = await supabase
+          .from('watch_history')
+          .select('content_id, content_type, watched_at')
+          .eq('user_id', user.id)
+          .order('watched_at', { ascending: false })
+          .limit(20);
+
+        if (historyError) {
+          console.error('Error fetching watch history:', historyError);
+          return;
+        }
+
+        if (!historyData || historyData.length === 0) return;
+
+        // Get unique content IDs
+        const contentIds = historyData.map(h => h.content_id);
+
+        // Fetch channel details
+        const { data: channelsData, error: channelsError } = await supabase
+          .from('channels')
+          .select('*')
+          .in('id', contentIds);
+
+        if (channelsError) {
+          console.error('Error fetching channels for history:', channelsError);
+          return;
+        }
+
+        if (!channelsData) return;
+
+        // Create a map for quick lookup
+        const channelMap = new Map(channelsData.map(c => [c.id, c]));
+
+        // Group by series_title (for series) or keep as-is (for movies/tv)
+        const seenSeries = new Set<string>();
+        const recentItems: ContentItem[] = [];
+
+        for (const history of historyData as WatchHistoryItem[]) {
+          const channel = channelMap.get(history.content_id);
+          if (!channel) continue;
+
+          // Skip adult content
+          if (isAdultCategory(channel.category)) continue;
+
+          // For series, group by series_title
+          if (channel.content_type === 'SERIES' && channel.series_title) {
+            if (seenSeries.has(channel.series_title)) continue;
+            seenSeries.add(channel.series_title);
+
+            recentItems.push({
+              id: channel.id,
+              title: channel.series_title,
+              poster_url: channel.logo_url || undefined,
+              category: channel.category,
+              type: 'MOVIE' as const,
+              stream_url: channel.stream_url,
+            });
+          } else {
+            recentItems.push({
+              id: channel.id,
+              title: channel.name,
+              poster_url: channel.logo_url || undefined,
+              category: channel.category,
+              type: channel.content_type === 'TV' ? 'TV' : 'MOVIE',
+              stream_url: channel.stream_url,
+            });
+          }
+
+          if (recentItems.length >= 15) break;
+        }
+
+        setRecentlyWatched(recentItems);
+      } catch (error) {
+        console.error('Error in fetchRecentlyWatched:', error);
+      }
+    };
+
+    fetchRecentlyWatched();
+  }, [user?.id]);
 
   useEffect(() => {
     const fetchAllChannels = async () => {
       setLoading(true);
       
       try {
+        // Fetch newest movies for hero banner
+        const { data: newestMovies, error: heroError } = await supabase
+          .from('active_channels' as any)
+          .select('*')
+          .eq('content_type', 'MOVIE')
+          .order('created_at', { ascending: false })
+          .limit(100);
+
+        if (!heroError && newestMovies) {
+          const safeHeroMovies = (newestMovies as unknown as Channel[])
+            .filter(c => !isAdultCategory(c.category))
+            .slice(0, 5);
+
+          const heroContent: ContentItem[] = safeHeroMovies.map(channel => ({
+            id: channel.id,
+            title: channel.name,
+            poster_url: channel.logo_url || undefined,
+            category: channel.category,
+            type: 'MOVIE' as const,
+            stream_url: channel.stream_url,
+          }));
+
+          setHeroItems(heroContent);
+        }
+
         // Use active_channels view to filter out channels from inactive lists
         const { data, error } = await supabase
           .from('active_channels' as any)
@@ -151,8 +275,7 @@ const Index = () => {
     return acc;
   }, {} as Record<string, ContentItem[]>);
 
-  // Hero item - first film or fallback
-  const heroItem = filmsAsContent[0];
+  // Check if there's no content at all
 
   // Check if there's no content at all
   const hasNoContent = filmChannels.length === 0 && seriesChannels.length === 0 && tvChannels.length === 0;
@@ -181,8 +304,8 @@ const Index = () => {
             </Link>
           </div>
         </div>
-      ) : heroItem ? (
-        <HeroSection item={heroItem} onPlay={handlePlay} />
+      ) : heroItems.length > 0 ? (
+        <HeroSection items={heroItems} onPlay={handlePlay} />
       ) : (
         <div className="h-[50vh] flex items-center justify-center bg-gradient-to-b from-muted to-background">
           <p className="text-muted-foreground">Sem destaque disponível</p>
@@ -212,12 +335,14 @@ const Index = () => {
             </div>
           ) : filmsAsContent.length > 0 ? (
             <div className="space-y-8">
-              {/* Top Films */}
-              <ContentCarousel
-                title="Em Destaque"
-                items={filmsAsContent.slice(0, 15)}
-                onPlay={handlePlay}
-              />
+              {/* Recently Watched */}
+              {recentlyWatched.length > 0 && (
+                <ContentCarousel
+                  title="Assistido Recentemente"
+                  items={recentlyWatched}
+                  onPlay={handlePlay}
+                />
+              )}
 
               {/* By Category */}
               {filmCategories.slice(0, 2).map((category) => (
