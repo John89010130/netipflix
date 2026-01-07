@@ -54,6 +54,7 @@ serve(async (req) => {
 
     const rangeHeader = req.headers.get('range');
     const looksLikeTs = /\.ts(\?|$)/i.test(decodedUrl);
+    const looksLikeMp4 = /\.(mp4|webm|ogg|mov)(\?|$)/i.test(decodedUrl);
 
     const buildHeaders = (opts: { userAgent: string; includeRange: boolean; forceRange: boolean }): HeadersInit => {
       const h: Record<string, string> = {
@@ -70,9 +71,10 @@ serve(async (req) => {
       if (incomingReferer) h['Referer'] = incomingReferer;
       if (incomingOrigin) h['Origin'] = incomingOrigin;
 
-      if (opts.includeRange) {
+      // NUNCA use Range com .ts (streams ao vivo)
+      if (opts.includeRange && !looksLikeTs) {
         if (rangeHeader) h['Range'] = rangeHeader;
-        else if (opts.forceRange && looksLikeTs) h['Range'] = 'bytes=0-';
+        else if (opts.forceRange && looksLikeMp4) h['Range'] = 'bytes=0-';
       }
 
       return h;
@@ -80,24 +82,28 @@ serve(async (req) => {
 
     const attempts: Array<{ name: string; headers: HeadersInit }> = [
       {
-        name: 'vlc_with_range',
-        headers: buildHeaders({ userAgent: 'VLC/3.0.20 LibVLC/3.0.20', includeRange: true, forceRange: true }),
-      },
-      {
         name: 'vlc_no_range',
         headers: buildHeaders({ userAgent: 'VLC/3.0.20 LibVLC/3.0.20', includeRange: false, forceRange: false }),
       },
     ];
 
-    if (incomingUA) {
-      attempts.push({
-        name: 'browser_with_range',
-        headers: buildHeaders({ userAgent: incomingUA, includeRange: true, forceRange: true }),
+    // Apenas adicionar tentativa com Range se NÃO for .ts
+    if (!looksLikeTs) {
+      attempts.unshift({
+        name: 'vlc_with_range',
+        headers: buildHeaders({ userAgent: 'VLC/3.0.20 LibVLC/3.0.20', includeRange: true, forceRange: true }),
       });
-      attempts.push({
-        name: 'browser_no_range',
-        headers: buildHeaders({ userAgent: incomingUA, includeRange: false, forceRange: false }),
-      });
+
+      if (incomingUA) {
+        attempts.push({
+          name: 'browser_with_range',
+          headers: buildHeaders({ userAgent: incomingUA, includeRange: true, forceRange: true }),
+        });
+        attempts.push({
+          name: 'browser_no_range',
+          headers: buildHeaders({ userAgent: incomingUA, includeRange: false, forceRange: false }),
+        });
+      }
     }
 
     let response: Response | null = null;
@@ -150,7 +156,9 @@ serve(async (req) => {
     const finalUrl = response.url || decodedUrl;
     const isM3u8ByUrl = decodedUrl.includes('.m3u8') || finalUrl.includes('.m3u8');
     const isM3u8ByHeader = /mpegurl/i.test(headerContentType);
-    const isTsByUrl = decodedUrl.includes('.ts') || finalUrl.includes('.ts');
+    const isTsByUrl = /\.ts(\?|$)/i.test(decodedUrl) || /\.ts(\?|$)/i.test(finalUrl);
+    const isMp4ByUrl = /\.(mp4|webm|ogg|mov)(\?|$)/i.test(decodedUrl) || /\.(mp4|webm|ogg|mov)(\?|$)/i.test(finalUrl);
+    const isMp4ByHeader = /video\/(mp4|webm|ogg|quicktime)/i.test(headerContentType);
     
     // Detect full M3U catalog requests (large channel lists) - these should NOT be proxied
     // They're used for imports and are too large to buffer in memory
@@ -168,6 +176,50 @@ serve(async (req) => {
         'Content-Type': headerContentType || 'audio/x-mpegurl',
         'X-Stream-Type': 'catalog',
       };
+      return new Response(response.body, {
+        status: response.status,
+        headers: responseHeaders,
+      });
+    }
+
+    // For direct MP4/video files, stream without buffering/rewriting
+    if ((isMp4ByUrl || isMp4ByHeader) && !isM3u8ByUrl && !isM3u8ByHeader) {
+      console.log('Direct MP4/video file detected - streaming without buffering');
+      const responseHeaders: HeadersInit = {
+        ...corsHeaders,
+        'Content-Type': headerContentType || 'video/mp4',
+        'X-Stream-Type': 'mp4',
+      };
+      
+      const contentLength = response.headers.get('content-length');
+      if (contentLength) responseHeaders['Content-Length'] = contentLength;
+      
+      const contentRange = response.headers.get('content-range');
+      if (contentRange) responseHeaders['Content-Range'] = contentRange;
+      
+      const acceptRanges = response.headers.get('accept-ranges');
+      if (acceptRanges) responseHeaders['Accept-Ranges'] = acceptRanges;
+      else responseHeaders['Accept-Ranges'] = 'bytes';
+
+      return new Response(response.body, {
+        status: response.status,
+        headers: responseHeaders,
+      });
+    }
+
+    // For direct TS streams (live TV), stream without buffering
+    if (isTsByUrl && !isM3u8ByUrl && !isM3u8ByHeader) {
+      console.log('Direct TS stream detected - streaming without buffering');
+      const responseHeaders: HeadersInit = {
+        ...corsHeaders,
+        'Content-Type': 'video/mp2t',
+        'X-Stream-Type': 'mpegts',
+        'Accept-Ranges': 'none', // Live streams don't support ranges
+      };
+      
+      const contentLength = response.headers.get('content-length');
+      if (contentLength) responseHeaders['Content-Length'] = contentLength;
+
       return new Response(response.body, {
         status: response.status,
         headers: responseHeaders,

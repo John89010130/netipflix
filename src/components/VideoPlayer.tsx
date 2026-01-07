@@ -387,14 +387,17 @@ export const VideoPlayer = ({ src, title, poster, contentId, contentType, onClos
     // Quick check for obvious file types
     const looksLikeHls = /\.m3u8(\?|$)/i.test(underlyingUrl);
     const looksLikeDirectFile = /\.(mp4|webm|ogg|mov)(\?|$)/i.test(underlyingUrl);
+    const looksLikeTsStream = /\.ts(\?|$)/i.test(underlyingUrl);
+    const looksLikeMpegTs = looksLikeTsStream || /\/live\//i.test(underlyingUrl) || underlyingUrl.includes(':80/');
 
     const initPlayer = async () => {
       try {
-        // If it obviously looks like an MP4/WebM, skip probing
+        // If it obviously looks like an MP4/WebM/etc, skip probing and proxy
+        // Use original URL directly for better compatibility
         if (looksLikeDirectFile) {
-          console.log('Direct file detected, using native playback');
+          console.log('Direct MP4/WebM file detected, using native playback without proxy');
           setStreamInfo({ type: 'mp4' });
-          video.src = streamUrl;
+          video.src = src; // Use original URL, not proxied
           setIsLoading(false);
           if (autoPlay) video.play().catch(() => setIsPlaying(false));
           return;
@@ -408,19 +411,87 @@ export const VideoPlayer = ({ src, title, poster, contentId, contentType, onClos
           return;
         }
 
-        // Para streams diretos (sem .m3u8), alguns servidores limitam conexões simultâneas.
-        // O probe faz uma requisição extra e pode causar 403; então tentamos MPEG-TS primeiro.
-        console.log('Direct stream endpoint detected, trying mpegts.js first (no probe)');
-        setStreamInfo({ type: 'mpegts' });
+        // Para streams MPEG-TS diretos (.ts ou live streams), tentar URL direta PRIMEIRO
+        // Isso evita problemas com proxy e funciona melhor com servidores IPTV
+        if (looksLikeMpegTs) {
+          console.log('MPEG-TS stream detected, trying direct URL first');
+          setStreamInfo({ type: 'mpegts' });
 
-        try {
-          await initMpegts(streamUrl, video, 'mpegts');
-        } catch (mpegtsError) {
-          console.log('mpegts.js init failed, trying HLS fallback');
-          cleanup();
-          setStreamInfo({ type: 'hls' });
-          await initHls(streamUrl, video);
+          try {
+            // Tentar URL ORIGINAL primeiro (sem proxy) - funciona melhor!
+            console.log('Attempting direct URL without proxy...');
+            await initMpegts(src, video, 'mpegts');
+            return;
+          } catch (directError: any) {
+            console.log('Direct URL failed:', directError?.message);
+            cleanup();
+            
+            // Se erro é de codec, tentar reprodução nativa diretamente
+            if (directError?.message?.includes('Codec not supported')) {
+              console.log('Codec not supported, trying native video element...');
+              setStreamInfo({ type: 'mp4' });
+              try {
+                video.src = src;
+                video.load();
+                
+                // Add error handler
+                const errorHandler = (e: Event) => {
+                  console.error('Native video error:', video.error);
+                  video.removeEventListener('error', errorHandler);
+                };
+                video.addEventListener('error', errorHandler);
+                
+                // Add canplay handler
+                const canplayHandler = () => {
+                  console.log('Native video can play');
+                  video.removeEventListener('canplay', canplayHandler);
+                  setIsLoading(false);
+                };
+                video.addEventListener('canplay', canplayHandler, { once: true });
+                
+                await video.play();
+                setIsPlaying(true);
+                return;
+              } catch (nativeError) {
+                console.log('Native playback also failed:', nativeError);
+              }
+            }
+            
+            try {
+              console.log('Trying with proxy...');
+              await initMpegts(streamUrl, video, 'mpegts');
+              return;
+            } catch (proxyError: any) {
+              console.log('Proxy failed too:', proxyError?.message);
+              cleanup();
+              
+              // Tentar reprodução nativa com URL original
+              console.log('Trying native video element as last resort...');
+              setStreamInfo({ type: 'mp4' });
+              try {
+                video.src = src;
+                video.load();
+                const playPromise = video.play();
+                if (playPromise) {
+                  await playPromise;
+                }
+                setIsLoading(false);
+                setIsPlaying(true);
+                return;
+              } catch (nativeError) {
+                console.log('Native playback failed, trying HLS fallback...');
+                setStreamInfo({ type: 'hls' });
+                await initHls(streamUrl, video);
+                return;
+              }
+            }
+          }
         }
+
+        // Para outros endpoints, tentar HLS primeiro
+        console.log('Unknown endpoint, trying HLS first');
+        setStreamInfo({ type: 'hls' });
+        await initHls(streamUrl, video);
         return;
       } catch (err) {
         if (abortController.signal.aborted) return;
@@ -496,6 +567,19 @@ export const VideoPlayer = ({ src, title, poster, contentId, contentType, onClos
 
     const initMpegts = async (url: string, videoEl: HTMLVideoElement, type: 'mpegts' | 'flv') => {
       try {
+        // Test URL accessibility first
+        console.log('Testing URL accessibility:', url);
+        try {
+          const testResponse = await fetch(url, {
+            method: 'HEAD',
+            mode: 'no-cors',
+          });
+          console.log('URL test response:', testResponse);
+        } catch (testErr) {
+          console.warn('HEAD request failed (this is OK for some servers):', testErr);
+          // Continue anyway - some servers don't support HEAD
+        }
+
         // Dynamic import for mpegts.js
         const mpegts = await import('mpegts.js');
         
@@ -503,16 +587,18 @@ export const VideoPlayer = ({ src, title, poster, contentId, contentType, onClos
           throw new Error('mpegts.js não é suportado neste navegador');
         }
 
-        console.log('Initializing mpegts.js player');
+        console.log('Initializing mpegts.js player for URL:', url);
         
         const player = mpegts.default.createPlayer({
           type: type === 'flv' ? 'flv' : 'mpegts',
           isLive: true,
           url: url,
+          cors: true,
+          withCredentials: false,
         }, {
           enableWorker: true,
           enableStashBuffer: true,
-          stashInitialSize: 128 * 1024,
+          stashInitialSize: 256 * 1024, // Aumentado para 256KB
           lazyLoad: false,
           lazyLoadMaxDuration: 0,
           deferLoadAfterSourceOpen: false,
@@ -523,18 +609,31 @@ export const VideoPlayer = ({ src, title, poster, contentId, contentType, onClos
           autoCleanupSourceBuffer: true,
           autoCleanupMaxBackwardDuration: 30,
           autoCleanupMinBackwardDuration: 10,
+          // Adiciona configurações para melhor compatibilidade
+          fixAudioTimestampGap: true,
+          accurateSeek: false,
         });
 
         mpegtsPlayerRef.current = player;
         player.attachMediaElement(videoEl);
-        player.load();
+        
+        let errorOccurred = false;
+        let mediaInfoReceived = false;
 
         player.on(mpegts.default.Events.ERROR, (errorType: string, errorDetail: string, errorInfo: any) => {
-          console.error('mpegts.js error:', errorType, errorDetail, errorInfo);
+          console.error('mpegts.js error:', { errorType, errorDetail, errorInfo });
+          console.error('Stream URL was:', url);
+          errorOccurred = true;
           
           // Check if it's a codec error
           if (errorInfo?.msg?.includes('codec') || errorDetail?.includes('codec')) {
             setError(`Codec não suportado pelo navegador. Este stream pode usar H.265/HEVC que não é suportado no Chrome.`);
+          } else if (errorDetail?.includes('NetworkError') || errorType?.includes('NetworkError')) {
+            setError(`Erro de rede ao carregar o stream. Verifique sua conexão.`);
+          } else if (errorDetail?.includes('HttpStatusCodeInvalid')) {
+            const statusMatch = errorInfo?.msg?.match(/(\d{3})/);
+            const statusCode = statusMatch ? statusMatch[1] : 'desconhecido';
+            setError(`Servidor retornou erro ${statusCode}. O stream pode estar offline ou bloqueado.`);
           } else {
             setError(`Erro de reprodução: ${errorDetail || errorType}`);
           }
@@ -547,30 +646,48 @@ export const VideoPlayer = ({ src, title, poster, contentId, contentType, onClos
 
         player.on(mpegts.default.Events.MEDIA_INFO, (info: any) => {
           console.log('mpegts.js media info:', info);
+          mediaInfoReceived = true;
           setIsLoading(false);
         });
 
-        // Try to play
-        const playPromise = videoEl.play();
-        if (playPromise !== undefined) {
-          playPromise
-            .then(() => {
-              setIsLoading(false);
-              setIsPlaying(true);
-            })
-            .catch((err) => {
-              console.error('Autoplay failed:', err);
-              setIsPlaying(false);
-              setIsLoading(false);
-            });
+        // Start loading
+        player.load();
+
+        // Wait a bit for media info or error
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+
+        if (errorOccurred) {
+          throw new Error('mpegts.js failed to load stream');
         }
 
-        // Set a timeout for loading
+        // Try to play
+        try {
+          await videoEl.play();
+          setIsLoading(false);
+          setIsPlaying(true);
+          console.log('mpegts.js playback started successfully');
+        } catch (playErr: any) {
+          console.error('Autoplay failed:', playErr);
+          
+          // Se o erro for "no supported sources", significa codec não suportado
+          if (playErr?.message?.includes('no supported sources') || 
+              playErr?.name === 'NotSupportedError') {
+            console.error('Stream codec not supported by mpegts.js - likely H.265/HEVC');
+            throw new Error('Codec not supported');
+          }
+          
+          setIsPlaying(false);
+          setIsLoading(false);
+          // Don't throw - user can click play manually
+        }
+
+        // Set a timeout for loading if media info not received
         setTimeout(() => {
-          if (isLoading && !error) {
+          if (!mediaInfoReceived && !errorOccurred) {
+            console.log('mpegts.js: No media info received after 10s, but continuing...');
             setIsLoading(false);
           }
-        }, 5000);
+        }, 10000);
 
       } catch (err) {
         console.error('mpegts.js init error:', err);
