@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -9,6 +10,7 @@ import ProtectedRoute from "./components/ProtectedRoute";
 import { TestProgressWidget } from "./components/TestProgressWidget";
 import { SupportChat } from "./components/SupportChat";
 import { SessionLimitModal } from "./components/SessionLimitModal";
+import { useTVNavigation, tvFocusStyles } from "./hooks/useTVNavigation";
 import Index from "./pages/Index";
 import Login from "./pages/Login";
 import ProfileSelect from "./pages/ProfileSelect";
@@ -24,11 +26,34 @@ import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
 
+// TV Navigation wrapper component
+const TVNavigationProvider = ({ children }: { children: React.ReactNode }) => {
+  useTVNavigation();
+  
+  useEffect(() => {
+    // Inject TV focus styles
+    const styleId = 'tv-focus-styles';
+    if (!document.getElementById(styleId)) {
+      const style = document.createElement('style');
+      style.id = styleId;
+      style.textContent = tvFocusStyles;
+      document.head.appendChild(style);
+    }
+    return () => {
+      const existingStyle = document.getElementById(styleId);
+      if (existingStyle) existingStyle.remove();
+    };
+  }, []);
+  
+  return <>{children}</>;
+};
+
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <AuthProvider>
       <SessionProvider>
-        <TooltipProvider>
+        <TVNavigationProvider>
+          <TooltipProvider>
           <Toaster />
           <Sonner />
           <BrowserRouter>
@@ -114,7 +139,8 @@ const App = () => (
               <Route path="*" element={<NotFound />} />
             </Routes>
           </BrowserRouter>
-        </TooltipProvider>
+          </TooltipProvider>
+        </TVNavigationProvider>
       </SessionProvider>
     </AuthProvider>
   </QueryClientProvider>

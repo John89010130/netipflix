@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Play, Tv } from 'lucide-react';
 import { Channel } from '@/types';
 import { cn } from '@/lib/utils';
@@ -9,14 +10,33 @@ interface ChannelCardProps {
 }
 
 export const ChannelCard = ({ channel, onPlay }: ChannelCardProps) => {
+  const [isFocused, setIsFocused] = useState(false);
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      onPlay?.(channel);
+    }
+  };
+
   return (
     <div
+      tabIndex={0}
+      role="button"
+      aria-label={`Assistir ${channel.name}`}
       onClick={() => onPlay?.(channel)}
+      onKeyDown={handleKeyDown}
+      onFocus={() => setIsFocused(true)}
+      onBlur={() => setIsFocused(false)}
       className={cn(
-        "relative flex-shrink-0 w-[140px] md:w-[180px] cursor-pointer transition-all duration-300 hover:scale-105 group"
+        "relative flex-shrink-0 w-[140px] md:w-[180px] cursor-pointer transition-all duration-300 hover:scale-105 focus:scale-105 group focus:outline-none",
+        isFocused && "z-10"
       )}
     >
-      <div className="relative aspect-video overflow-hidden rounded-lg bg-secondary">
+      <div className={cn(
+        "relative aspect-video overflow-hidden rounded-lg bg-secondary transition-all",
+        isFocused && "ring-4 ring-primary ring-offset-2 ring-offset-background"
+      )}>
         {/* Logo Container */}
         <div className="absolute inset-0 flex items-center justify-center p-4">
           <img
@@ -29,8 +49,12 @@ export const ChannelCard = ({ channel, onPlay }: ChannelCardProps) => {
           />
         </div>
 
-        {/* Hover Overlay */}
-        <div className="absolute inset-0 bg-primary/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+        {/* Hover/Focus Overlay */}
+        <div className={cn(
+          "absolute inset-0 bg-primary/20 opacity-0 transition-opacity flex items-center justify-center",
+          "group-hover:opacity-100",
+          isFocused && "opacity-100"
+        )}>
           <div className="h-12 w-12 rounded-full bg-foreground text-background flex items-center justify-center">
             <Play className="h-6 w-6 fill-current ml-1" />
           </div>
