@@ -48,56 +48,74 @@ export type Database = {
         Row: {
           active: boolean
           category: string
+          clean_title: string | null
           content_type: string
           country: string
           created_at: string
           episode_number: number | null
+          episode_title: string | null
+          genre: string | null
           id: string
           last_test_status: string | null
           last_tested_at: string | null
           logo_url: string | null
           m3u_link_id: string | null
           name: string
+          original_name: string | null
           season_number: number | null
           series_title: string | null
           stream_url: string
+          subcategory: string | null
           updated_at: string
+          year: number | null
         }
         Insert: {
           active?: boolean
           category: string
+          clean_title?: string | null
           content_type?: string
           country?: string
           created_at?: string
           episode_number?: number | null
+          episode_title?: string | null
+          genre?: string | null
           id?: string
           last_test_status?: string | null
           last_tested_at?: string | null
           logo_url?: string | null
           m3u_link_id?: string | null
           name: string
+          original_name?: string | null
           season_number?: number | null
           series_title?: string | null
           stream_url: string
+          subcategory?: string | null
           updated_at?: string
+          year?: number | null
         }
         Update: {
           active?: boolean
           category?: string
+          clean_title?: string | null
           content_type?: string
           country?: string
           created_at?: string
           episode_number?: number | null
+          episode_title?: string | null
+          genre?: string | null
           id?: string
           last_test_status?: string | null
           last_tested_at?: string | null
           logo_url?: string | null
           m3u_link_id?: string | null
           name?: string
+          original_name?: string | null
           season_number?: number | null
           series_title?: string | null
           stream_url?: string
+          subcategory?: string | null
           updated_at?: string
+          year?: number | null
         }
         Relationships: [
           {
@@ -561,6 +579,35 @@ export type Database = {
       is_admin: { Args: { _user_id: string }; Returns: boolean }
       is_parent_user: { Args: { _user_id: string }; Returns: boolean }
       normalize_text: { Args: { text_input: string }; Returns: string }
+      parse_category_info: {
+        Args: { p_category: string }
+        Returns: {
+          detected_genre: string
+          main_category: string
+          sub_category: string
+        }[]
+      }
+      parse_content_name: {
+        Args: { p_name: string }
+        Returns: {
+          clean_title: string
+          episode_num: number
+          episode_title: string
+          season_num: number
+          year_extracted: number
+        }[]
+      }
+      reorganize_all_channels: {
+        Args: never
+        Returns: {
+          movies_updated: number
+          series_updated: number
+          subcategories_extracted: number
+          total_processed: number
+          tv_updated: number
+          years_extracted: number
+        }[]
+      }
       unaccent: { Args: { "": string }; Returns: string }
     }
     Enums: {
