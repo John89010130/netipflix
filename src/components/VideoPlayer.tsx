@@ -665,11 +665,37 @@ export const VideoPlayer = ({ src, title, poster, contentId, contentType, onClos
       ref={containerRef}
       className="fixed inset-0 z-50 bg-background flex items-center justify-center"
     >
-      {/* Loading Spinner */}
+      {/* Loading Screen with Poster Animation */}
       {isLoading && !error && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center z-10">
-          <div className="h-12 w-12 border-4 border-primary border-t-transparent rounded-full animate-spin" />
-          <p className="mt-4 text-muted-foreground">Detectando tipo de stream...</p>
+        <div className="absolute inset-0 z-10 overflow-hidden">
+          {/* Animated Poster Background */}
+          {poster ? (
+            <div className="absolute inset-0 animate-poster-zoom">
+              <img
+                src={poster}
+                alt={title || 'Loading'}
+                className="h-full w-full object-cover"
+              />
+              {/* Gradient overlay for readability */}
+              <div className="absolute inset-0 bg-gradient-to-t from-background via-background/60 to-background/30" />
+            </div>
+          ) : (
+            <div className="absolute inset-0 bg-background" />
+          )}
+          
+          {/* Loading indicator */}
+          <div className="absolute inset-0 flex flex-col items-center justify-center">
+            <div className="relative">
+              <div className="h-16 w-16 border-4 border-primary/30 rounded-full" />
+              <div className="absolute inset-0 h-16 w-16 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+            </div>
+            <p className="mt-6 text-lg font-medium text-foreground/90">Carregando...</p>
+            {title && (
+              <h2 className="mt-2 text-2xl md:text-4xl font-display text-center px-4 text-gradient">
+                {title}
+              </h2>
+            )}
+          </div>
         </div>
       )}
 

@@ -4,6 +4,7 @@ import { HeroSection } from '@/components/HeroSection';
 import { ContentCarousel } from '@/components/ContentCarousel';
 import { ChannelCard } from '@/components/ChannelCard';
 import { VideoPlayer } from '@/components/VideoPlayer';
+import { ContentDetailModal } from '@/components/ContentDetailModal';
 import { Button } from '@/components/ui/button';
 import { ChevronLeft, ChevronRight, Tv, Film, PlayCircle, History } from 'lucide-react';
 import { ContentItem } from '@/types';
@@ -35,6 +36,7 @@ interface WatchHistoryItem {
 const Index = () => {
   const { user } = useAuth();
   const [currentVideo, setCurrentVideo] = useState<{ src: string; title: string; poster?: string; contentId?: string; contentType?: 'TV' | 'MOVIE' | 'SERIES' } | null>(null);
+  const [selectedContent, setSelectedContent] = useState<ContentItem | null>(null);
   const [tvChannels, setTVChannels] = useState<Channel[]>([]);
   const [filmChannels, setFilmChannels] = useState<Channel[]>([]);
   const [seriesChannels, setSeriesChannels] = useState<Channel[]>([]);
@@ -315,7 +317,7 @@ const Index = () => {
           </div>
         </div>
       ) : heroItems.length > 0 ? (
-        <HeroSection items={heroItems} onPlay={handlePlay} />
+        <HeroSection items={heroItems} onPlay={handlePlay} onMoreInfo={setSelectedContent} />
       ) : (
         <div className="h-[50vh] flex items-center justify-center bg-gradient-to-b from-muted to-background">
           <p className="text-muted-foreground">Sem destaque disponível</p>
@@ -489,6 +491,18 @@ const Index = () => {
           </div>
         </section>
       </main>
+
+      {/* Content Detail Modal */}
+      {selectedContent && (
+        <ContentDetailModal
+          item={selectedContent}
+          onClose={() => setSelectedContent(null)}
+          onPlay={(item) => {
+            setSelectedContent(null);
+            handlePlay(item);
+          }}
+        />
+      )}
 
       {/* Video Player Modal */}
       {currentVideo && (
