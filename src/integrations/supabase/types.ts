@@ -578,6 +578,7 @@ export type Database = {
       }
       is_admin: { Args: { _user_id: string }; Returns: boolean }
       is_parent_user: { Args: { _user_id: string }; Returns: boolean }
+      migrate_channels_batch: { Args: { batch_size?: number }; Returns: number }
       normalize_text: { Args: { text_input: string }; Returns: string }
       parse_category_info: {
         Args: { p_category: string }
