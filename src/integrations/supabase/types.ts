@@ -539,6 +539,10 @@ export type Database = {
         Args: { p_category: string; p_name: string }
         Returns: string
       }
+      determine_content_type_v2: {
+        Args: { p_category: string; p_name: string; p_stream_url: string }
+        Returns: string
+      }
       extract_series_info: {
         Args: { p_name: string }
         Returns: {
