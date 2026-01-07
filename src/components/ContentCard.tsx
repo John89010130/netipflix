@@ -14,16 +14,30 @@ interface ContentCardProps {
 
 export const ContentCard = ({ item, index, showRank, onPlay, onAddToList, onMoreInfo }: ContentCardProps) => {
   const [isHovered, setIsHovered] = useState(false);
+  const [isFocused, setIsFocused] = useState(false);
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      onPlay?.(item);
+    }
+  };
 
   return (
     <div
+      tabIndex={0}
+      role="button"
+      aria-label={`Assistir ${item.title}`}
       className={cn(
-        "relative flex-shrink-0 cursor-pointer transition-all duration-300 ease-out",
+        "relative flex-shrink-0 cursor-pointer transition-all duration-300 ease-out focus:outline-none",
         showRank ? "w-[200px]" : "w-[180px] md:w-[220px]",
-        isHovered && "z-20 scale-110"
+        (isHovered || isFocused) && "z-20 scale-110"
       )}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
+      onFocus={() => setIsFocused(true)}
+      onBlur={() => setIsFocused(false)}
+      onKeyDown={handleKeyDown}
     >
       {/* Rank Number for Top 10 */}
       {showRank && index !== undefined && (
@@ -72,7 +86,7 @@ export const ContentCard = ({ item, index, showRank, onPlay, onAddToList, onMore
         )}
 
         {/* Hover Content */}
-        {isHovered && (
+        {(isHovered || isFocused) && (
           <div className="absolute inset-0 flex flex-col justify-end bg-gradient-card p-3 animate-fade-in">
             <h3 className="font-semibold text-foreground line-clamp-2 mb-2">{item.title}</h3>
             
