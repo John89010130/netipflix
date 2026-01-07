@@ -714,10 +714,10 @@ export const VideoPlayer = ({ src, title, poster, contentId, contentType, onClos
     setCurrentTime(video.currentTime);
     setProgress((video.currentTime / video.duration) * 100);
     
-    // Check if we should show next episode prompt (15 seconds before end)
-    if (nextEpisode && onPlayNext && isFinite(video.duration) && video.duration > 30) {
+    // Check if we should show next episode prompt (50 seconds before end)
+    if (nextEpisode && onPlayNext && isFinite(video.duration) && video.duration > 60) {
       const timeRemaining = video.duration - video.currentTime;
-      if (timeRemaining <= 15 && timeRemaining > 0 && !showNextEpisode) {
+      if (timeRemaining <= 50 && timeRemaining > 0 && !showNextEpisode) {
         setShowNextEpisode(true);
         setNextEpisodeCountdown(Math.ceil(timeRemaining));
       } else if (showNextEpisode && timeRemaining > 0) {
