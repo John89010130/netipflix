@@ -24,9 +24,12 @@ export const HeroSection = ({ items, onPlay, onMoreInfo, rotationInterval = 1000
     return () => clearInterval(interval);
   }, [items.length, rotationInterval]);
 
-  const item = items[currentIndex];
+  // If no items, render nothing but hooks are already called
+  if (!items || items.length === 0) {
+    return null;
+  }
 
-  if (!item) return null;
+  const item = items[currentIndex] || items[0];
 
   return (
     <section className="relative h-[70vh] md:h-[85vh] w-full overflow-hidden" data-skip-tv-nav>
