@@ -405,12 +405,14 @@ export const VideoPlayer = ({ src, title, poster, contentId, contentType, onClos
 
     const initPlayer = async () => {
       try {
-        // If it obviously looks like an MP4/WebM/etc, skip probing and proxy
-        // Use original URL directly for better compatibility
+        // If it obviously looks like an MP4/WebM/etc
+        // Em localhost: usar URL direta (HTTP funciona)
+        // Em produção: SEMPRE usar proxy (evita mixed content)
         if (looksLikeDirectFile) {
-          console.log('Direct MP4/WebM file detected, using native playback without proxy');
+          const videoUrl = isLocalhost ? src : streamUrl;
+          console.log(`Direct MP4/WebM file detected, using ${isLocalhost ? 'direct URL' : 'proxy'}:`, videoUrl);
           setStreamInfo({ type: 'mp4' });
-          video.src = src; // Use original URL, not proxied
+          video.src = videoUrl;
           setIsLoading(false);
           if (autoPlay) video.play().catch(() => setIsPlaying(false));
           return;
