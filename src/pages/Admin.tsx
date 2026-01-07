@@ -1019,7 +1019,7 @@ const Admin = () => {
     }
   };
 
-  // Delete entire M3U list (link and all channels) - with batch deletion to avoid timeout
+  // Delete entire M3U list (link and all channels) using edge function
   const deleteM3uList = async (linkId: string, linkUrl: string) => {
     const confirmed = window.confirm(
       `Isso vai DELETAR PERMANENTEMENTE esta lista e TODOS os seus canais.\n\n` +
@@ -1030,137 +1030,35 @@ const Admin = () => {
     if (!confirmed) return;
     
     setImporting(true);
-    setImportProgress({ stage: 'downloading', message: 'Preparando deleção...', current: 0, total: 0 });
+    setImportProgress({ stage: 'downloading', message: 'Deletando lista e canais...', current: 0, total: 100 });
     
     try {
-      // Verify authentication and admin status
-      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-      if (sessionError || !session) {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
         throw new Error('Sessão expirada. Faça login novamente.');
       }
-      
-      console.log('Session user:', session.user.id);
-      
-      // Check if user is admin
-      const { data: roleData, error: roleError } = await supabase
-        .from('user_roles')
-        .select('role')
-        .eq('user_id', session.user.id)
-        .in('role', ['ADMIN', 'ADMIN_MASTER'])
-        .maybeSingle();
-      
-      console.log('User role:', roleData);
-      
-      if (roleError || !roleData) {
-        throw new Error('Você precisa ser admin para deletar listas.');
-      }
-      
-      // First, count how many channels to delete
-      const { count: totalChannels, error: countError } = await supabase
-        .from('channels')
-        .select('id', { count: 'exact', head: true })
-        .eq('m3u_link_id', linkId);
-      
-      if (countError) {
-        console.error('Error counting channels:', countError);
-        throw new Error(`Erro ao contar canais: ${countError.message}`);
-      }
-      
-      if (!totalChannels || totalChannels === 0) {
-        // No channels, just delete the link
-        const { error: deleteLinkError } = await supabase
-          .from('m3u_links')
-          .delete()
-          .eq('id', linkId);
-        
-        if (deleteLinkError) {
-          throw new Error(`Erro ao deletar link: ${deleteLinkError.message}`);
-        }
-        
-        toast.success('Lista deletada! (sem canais)');
-        
-        await Promise.all([
-          fetchChannels(true),
-          fetchChannelCounts(),
-          fetchM3uLinks(),
-          fetchAllCategories()
-        ]);
-        
-        return;
-      }
-      
-      // Delete channels in batches to avoid timeout
-      console.log(`Deletando ${totalChannels} canais em batches...`);
-      const batchSize = 500;
-      let deletedCount = 0;
-      
-      while (deletedCount < totalChannels) {
-        setImportProgress({ 
-          stage: 'parsing', 
-          message: `Deletando canais... ${deletedCount}/${totalChannels}`, 
-          current: deletedCount, 
-          total: totalChannels 
-        });
-        
-        // Get a batch of channel IDs to delete
-        const { data: channelBatch, error: fetchError } = await supabase
-          .from('channels')
-          .select('id')
-          .eq('m3u_link_id', linkId)
-          .limit(batchSize);
-        
-        if (fetchError) {
-          console.error('Error fetching channel batch:', fetchError);
-          throw new Error(`Erro ao buscar canais: ${fetchError.message}`);
-        }
-        
-        if (!channelBatch || channelBatch.length === 0) {
-          // No more channels to delete
-          break;
-        }
-        
-        const idsToDelete = channelBatch.map(c => c.id);
-        
-        // Delete this batch
-        const { error: deleteError } = await supabase
-          .from('channels')
-          .delete()
-          .in('id', idsToDelete);
-        
-        if (deleteError) {
-          console.error('Error deleting channel batch:', deleteError);
-          throw new Error(`Erro ao deletar canais: ${deleteError.message}`);
-        }
-        
-        deletedCount += channelBatch.length;
-        console.log(`Deleted ${deletedCount}/${totalChannels} channels`);
-      }
-      
-      setImportProgress({ 
-        stage: 'inserting', 
-        message: `Deletando link da lista...`, 
-        current: totalChannels, 
-        total: totalChannels 
+
+      const response = await fetch(`${SUPABASE_URL}/functions/v1/delete-m3u-list`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ linkId }),
       });
-      
-      // Now delete the m3u_link (no more channels to cascade)
-      const { error: deleteLinkError } = await supabase
-        .from('m3u_links')
-        .delete()
-        .eq('id', linkId);
-      
-      if (deleteLinkError) {
-        throw new Error(`Erro ao deletar link: ${deleteLinkError.message}`);
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error || 'Erro ao deletar lista');
       }
-      
-      console.log(`Lista e ${totalChannels} canais deletados com sucesso!`);
-      
+
       setImportProgress({ 
         stage: 'done', 
-        message: `Lista deletada! ${deletedCount} canais removidos.` 
+        message: `Lista deletada! ${result.deletedChannels} canais removidos.` 
       });
       
-      toast.success(`Lista deletada! ${deletedCount} canais removidos.`);
+      toast.success(`Lista deletada! ${result.deletedChannels} canais removidos.`);
       
       await Promise.all([
         fetchChannels(true),
@@ -1170,15 +1068,7 @@ const Admin = () => {
       ]);
     } catch (error) {
       console.error('Error deleting list:', error);
-      
-      let errorMessage = 'Erro desconhecido';
-      if (error instanceof Error) {
-        errorMessage = error.message;
-      } else if (typeof error === 'object' && error !== null) {
-        errorMessage = JSON.stringify(error);
-      }
-      
-      console.error('Error details:', errorMessage);
+      const errorMessage = error instanceof Error ? error.message : 'Erro desconhecido';
       toast.error(`Erro ao deletar lista: ${errorMessage}`);
     } finally {
       setTimeout(() => {
