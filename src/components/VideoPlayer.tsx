@@ -421,79 +421,52 @@ export const VideoPlayer = ({ src, title, poster, contentId, contentType, onClos
           return;
         }
 
-        // Para streams MPEG-TS diretos (.ts ou live streams), evitar tocar URL HTTP direto em página HTTPS
-        // (isso costuma falhar por mixed-content/CORS). Nesses casos, usar o proxy primeiro.
+        // Para streams MPEG-TS: SEMPRE tentar URL direta primeiro, proxy só como fallback
         if (looksLikeMpegTs) {
-          const isMixedContent =
-            typeof window !== 'undefined' && window.location.protocol === 'https:' && /^http:\/\//i.test(src);
-
-          console.log(
-            isMixedContent
-              ? 'MPEG-TS stream detected (HTTP under HTTPS), using proxy first'
-              : 'MPEG-TS stream detected, trying direct URL first'
-          );
+          console.log('MPEG-TS stream detected, trying DIRECT URL first (no proxy):', src);
           setStreamInfo({ type: 'mpegts' });
 
-          const primaryUrl = isMixedContent ? streamUrl : src;
-          const shouldTryProxyAfter = !isMixedContent; // se já começamos pelo proxy, não faz sentido repetir
-
           try {
-            console.log(isMixedContent ? 'Attempting via proxy...' : 'Attempting direct URL without proxy...');
-            await initMpegts(primaryUrl, video, 'mpegts');
+            await initMpegts(src, video, 'mpegts');
+            console.log('Direct URL worked!');
             return;
           } catch (directError: any) {
-            console.log('Primary URL failed:', directError?.message);
+            console.log('Direct URL failed:', directError?.message);
             cleanup();
 
-            // Se erro é de codec, tentar reprodução nativa (mas respeitando mixed-content)
+            // Se erro é de codec, tentar reprodução nativa
             if (directError?.message?.includes('Codec not supported')) {
               console.log('Codec not supported, trying native video element...');
               setStreamInfo({ type: 'mp4' });
               try {
-                const fallbackUrl = isMixedContent ? streamUrl : src;
-                video.src = fallbackUrl;
+                video.src = src;
                 video.load();
-
-                // Add error handler
-                const errorHandler = () => {
-                  console.error('Native video error:', video.error);
-                  video.removeEventListener('error', errorHandler);
-                };
-                video.addEventListener('error', errorHandler);
-
-                // Add canplay handler
-                const canplayHandler = () => {
-                  console.log('Native video can play');
-                  video.removeEventListener('canplay', canplayHandler);
-                  setIsLoading(false);
-                };
-                video.addEventListener('canplay', canplayHandler, { once: true });
-
                 await video.play();
                 setIsPlaying(true);
                 return;
               } catch (nativeError) {
                 console.log('Native playback also failed:', nativeError);
+                cleanup();
               }
             }
 
-            if (shouldTryProxyAfter) {
-              try {
-                console.log('Trying with proxy...');
-                await initMpegts(streamUrl, video, 'mpegts');
-                return;
-              } catch (proxyError: any) {
-                console.log('Proxy failed too:', proxyError?.message);
-                cleanup();
-              }
+            // Fallback: tentar com proxy
+            console.log('Trying with PROXY as fallback...');
+            try {
+              await initMpegts(streamUrl, video, 'mpegts');
+              console.log('Proxy worked!');
+              return;
+            } catch (proxyError: any) {
+              console.log('Proxy failed too:', proxyError?.message);
+              cleanup();
             }
 
             // Tentar reprodução nativa como último recurso
             console.log('Trying native video element as last resort...');
             setStreamInfo({ type: 'mp4' });
             try {
-              const fallbackUrl = isMixedContent ? streamUrl : src;
-              video.src = fallbackUrl;
+              // Tentar direto primeiro, proxy se falhar
+              video.src = src;
               video.load();
               const playPromise = video.play();
               if (playPromise) {
