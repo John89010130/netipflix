@@ -59,10 +59,13 @@ export const ContentCard = ({ item, index, showRank, onPlay, onAddToList }: Cont
 
         {/* Progress Bar */}
         {item.progress && item.progress > 0 && (
-          <div className="absolute bottom-0 left-0 right-0 h-1 bg-muted/50">
+          <div className="absolute bottom-0 left-0 right-0 h-1.5 bg-background/80">
             <div 
-              className="h-full bg-primary transition-all"
-              style={{ width: `${Math.min((item.progress / 3600) * 100, 95)}%` }}
+              className="h-full bg-primary"
+              style={{ 
+                // Assume ~90 min average movie duration, show at least 5% if there's any progress
+                width: `${Math.max(5, Math.min((item.progress / 5400) * 100, 95))}%` 
+              }}
             />
           </div>
         )}
