@@ -136,28 +136,28 @@ export const SeriesDetailModal = ({ item, onClose, onPlay }: SeriesDetailModalPr
         // Fetch watch progress for this user
         if (user?.id && sortedEpisodes.length > 0) {
           const episodeIds = sortedEpisodes.map(ep => ep.id);
-          const { data: progressData } = await supabase
+          const { data: progressData, error: progressError } = await supabase
             .from('watch_history')
-            .select('content_id, progress')
+            .select('content_id, progress, watched_at')
             .eq('user_id', user.id)
-            .in('content_id', episodeIds);
+            .in('content_id', episodeIds)
+            .order('watched_at', { ascending: false });
+          
+          console.log('Watch progress data:', progressData, progressError);
           
           if (progressData && progressData.length > 0) {
             const progressMap = new Map<string, number>();
             progressData.forEach(p => progressMap.set(p.content_id, p.progress || 0));
             setWatchProgress(progressMap);
             
-            // Find the episode to continue watching (most recently watched with progress > 0)
-            const watchedEpisodes = sortedEpisodes.filter(ep => (progressMap.get(ep.id) || 0) > 10);
-            if (watchedEpisodes.length > 0) {
-              // Get the one with highest progress that isn't finished (< 90% assuming 45min episodes)
-              const notFinished = watchedEpisodes.find(ep => {
-                const progress = progressMap.get(ep.id) || 0;
-                return progress < 2700; // Less than 45 min = likely not finished
-              });
-              if (notFinished) {
-                setContinueWatchingEpisode(notFinished);
-                setExpandedSeason(notFinished.parsedSeason);
+            // Find the most recently watched episode that isn't finished
+            // Use the first one from progressData since it's ordered by watched_at desc
+            for (const progress of progressData) {
+              const episode = sortedEpisodes.find(ep => ep.id === progress.content_id);
+              if (episode && (progress.progress || 0) > 10 && (progress.progress || 0) < 2700) {
+                setContinueWatchingEpisode(episode);
+                setExpandedSeason(episode.parsedSeason);
+                break;
               }
             }
           }
