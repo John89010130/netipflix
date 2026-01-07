@@ -22,7 +22,13 @@ export const isAdultCategory = (category: string): boolean => {
   return lowerCategory.includes('adulto') || 
          lowerCategory.includes('adult') || 
          lowerCategory.includes('+18') ||
+         lowerCategory.includes('18+') ||
          lowerCategory.includes('xxx') ||
+         lowerCategory.includes('onlyfans') ||
+         lowerCategory.includes('bella da semana') ||
+         lowerCategory.includes('porn') ||
+         lowerCategory.includes('erotico') ||
+         lowerCategory.includes('erótico') ||
          lowerCategory === 'campur';
 };
 
