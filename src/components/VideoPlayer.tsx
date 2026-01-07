@@ -590,18 +590,8 @@ export const VideoPlayer = ({ src, title, poster, contentId, contentType, onClos
 
     const initMpegts = async (url: string, videoEl: HTMLVideoElement, type: 'mpegts' | 'flv') => {
       try {
-        // Test URL accessibility first
-        console.log('Testing URL accessibility:', url);
-        try {
-          const testResponse = await fetch(url, {
-            method: 'HEAD',
-            mode: 'no-cors',
-          });
-          console.log('URL test response:', testResponse);
-        } catch (testErr) {
-          console.warn('HEAD request failed (this is OK for some servers):', testErr);
-          // Continue anyway - some servers don't support HEAD
-        }
+        // Removido HEAD request desnecessário - causa tráfego extra e bloqueios
+        console.log('Initializing mpegts.js for URL:', url);
 
         // Dynamic import for mpegts.js
         const mpegts = await import('mpegts.js');
