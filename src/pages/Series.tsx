@@ -54,17 +54,17 @@ const Series = () => {
     return () => clearTimeout(timer);
   }, [searchQuery]);
 
-  // Fetch categories once
+  // Fetch categories once - from active lists only
   useEffect(() => {
     const fetchCategories = async () => {
       const { data, error } = await supabase
-        .from('channels')
+        .from('active_channels' as any)
         .select('category')
-        .eq('active', true)
         .eq('content_type', 'SERIES');
 
       if (!error && data) {
-        const uniqueCategories = [...new Set(data.map(c => c.category))].sort();
+        const channels = data as unknown as { category: string }[];
+        const uniqueCategories = [...new Set(channels.map(c => c.category))].sort();
         const regularCategories = uniqueCategories.filter(c => !isAdultCategory(c));
         const adultCategories = uniqueCategories.filter(c => isAdultCategory(c));
         setCategories(['Todos', ...regularCategories, ...(adultCategories.length > 0 ? ['🔞 Adulto'] : [])]);
@@ -119,7 +119,7 @@ const Series = () => {
     setSeriesGroups(groupsArray);
   }, [episodes]);
 
-  // Fetch episodes
+  // Fetch episodes - from active lists only
   const fetchEpisodes = useCallback(async (reset = false, currentLength = 0) => {
     if (reset) {
       setLoading(true);
@@ -131,9 +131,8 @@ const Series = () => {
     const from = reset ? 0 : currentLength;
 
     let query = supabase
-      .from('channels')
+      .from('active_channels' as any)
       .select('id, name, category, stream_url, logo_url, series_title, season_number, episode_number')
-      .eq('active', true)
       .eq('content_type', 'SERIES')
       .order('series_title', { ascending: true, nullsFirst: false })
       .order('season_number', { ascending: true })
@@ -156,7 +155,7 @@ const Series = () => {
     }
     
     if (data) {
-      let filteredData = data as Episode[];
+      let filteredData = data as unknown as Episode[];
       
       // Filter by adult content
       if (selectedCategory === 'Todos') {
