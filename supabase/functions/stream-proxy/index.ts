@@ -55,16 +55,22 @@ serve(async (req) => {
     const looksLikeTs = /\.ts(\?|$)/i.test(decodedUrl);
     const looksLikeMp4 = /\.(mp4|webm|ogg|mov)(\?|$)/i.test(decodedUrl);
 
-    const buildHeaders = (opts: { userAgent: string; includeRange: boolean; forceRange: boolean }): HeadersInit => {
+    const buildHeaders = (opts: { userAgent: string; includeRange: boolean; forceRange: boolean; referer?: string }): HeadersInit => {
       const h: Record<string, string> = {
         'User-Agent': opts.userAgent,
         'Accept': '*/*',
-        'Accept-Language': 'en-US,en;q=0.9',
+        'Accept-Language': 'en-US,en;q=0.9,pt-BR;q=0.8,pt;q=0.7',
         'Connection': 'keep-alive',
         'Cache-Control': 'no-cache',
         'Pragma': 'no-cache',
         'Accept-Encoding': 'identity',
       };
+
+      // Adicionar Referer do próprio servidor (alguns IPTV verificam)
+      if (opts.referer) {
+        h['Referer'] = opts.referer;
+        h['Origin'] = new URL(opts.referer).origin;
+      }
 
       // NUNCA use Range com .ts (streams ao vivo)
       if (opts.includeRange && !looksLikeTs) {
@@ -75,7 +81,24 @@ serve(async (req) => {
       return h;
     };
 
+    // Extrair origem da URL para Referer
+    let urlOrigin = '';
+    try {
+      urlOrigin = new URL(decodedUrl).origin;
+    } catch {};
+
     const attempts: Array<{ name: string; headers: HeadersInit }> = [
+      // Tentativa 1: Browser real com Referer
+      {
+        name: 'browser_with_referer',
+        headers: buildHeaders({ 
+          userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36', 
+          includeRange: false, 
+          forceRange: false,
+          referer: urlOrigin + '/',
+        }),
+      },
+      // Tentativa 2: VLC sem Range
       {
         name: 'vlc_no_range',
         headers: buildHeaders({ userAgent: 'VLC/3.0.20 LibVLC/3.0.20', includeRange: false, forceRange: false }),
@@ -84,7 +107,7 @@ serve(async (req) => {
 
     // Apenas adicionar tentativa com Range se NÃO for .ts
     if (!looksLikeTs) {
-      attempts.unshift({
+      attempts.push({
         name: 'vlc_with_range',
         headers: buildHeaders({ userAgent: 'VLC/3.0.20 LibVLC/3.0.20', includeRange: true, forceRange: true }),
       });
