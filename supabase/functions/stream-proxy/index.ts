@@ -43,12 +43,13 @@ serve(async (req) => {
     
     console.log('Proxying stream:', decodedUrl);
 
-    // Forward headers for proper streaming
+    // Forward headers for proper streaming - use VLC-like User-Agent for better compatibility
     const headers: HeadersInit = {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      'User-Agent': 'VLC/3.0.20 LibVLC/3.0.20',
       'Accept': '*/*',
       'Accept-Language': 'en-US,en;q=0.9',
       'Connection': 'keep-alive',
+      'Icy-MetaData': '1',
     };
     
     const rangeHeader = req.headers.get('range');
