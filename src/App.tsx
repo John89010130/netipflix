@@ -19,6 +19,7 @@ import Series from "./pages/Series";
 import MyList from "./pages/MyList";
 import Admin from "./pages/Admin";
 import Install from "./pages/Install";
+import Search from "./pages/Search";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -101,6 +102,14 @@ const App = () => (
                 }
               />
               <Route path="/install" element={<Install />} />
+              <Route
+                path="/search"
+                element={
+                  <ProtectedRoute>
+                    <Search />
+                  </ProtectedRoute>
+                }
+              />
               {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
               <Route path="*" element={<NotFound />} />
             </Routes>

@@ -322,7 +322,7 @@ const Index = () => {
         </div>
       )}
 
-      <main className="relative z-10 -mt-32 px-4 md:px-12 space-y-12 pb-16">
+      <main className="relative z-10 px-4 md:px-12 space-y-12 pb-16 pt-8">
         {/* ========== ASSISTIDO RECENTEMENTE ========== */}
         {!loading && recentlyWatched.length > 0 && (
           <section>
