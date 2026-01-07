@@ -78,6 +78,28 @@ serve(async (req) => {
     const isM3u8ByUrl = decodedUrl.includes('.m3u8') || finalUrl.includes('.m3u8');
     const isM3u8ByHeader = /mpegurl/i.test(headerContentType);
     const isTsByUrl = decodedUrl.includes('.ts') || finalUrl.includes('.ts');
+    
+    // Detect full M3U catalog requests (large channel lists) - these should NOT be proxied
+    // They're used for imports and are too large to buffer in memory
+    const isFullM3uCatalog = decodedUrl.includes('type=m3u_plus') || 
+                             decodedUrl.includes('type=m3u') ||
+                             decodedUrl.includes('get.php') ||
+                             decodedUrl.includes('output=m3u') ||
+                             decodedUrl.includes('output=ts');
+    
+    if (isFullM3uCatalog) {
+      console.log('Detected full M3U catalog request - streaming directly without rewriting');
+      // Stream the response directly without buffering
+      const responseHeaders: HeadersInit = {
+        ...corsHeaders,
+        'Content-Type': headerContentType || 'audio/x-mpegurl',
+        'X-Stream-Type': 'catalog',
+      };
+      return new Response(response.body, {
+        status: response.status,
+        headers: responseHeaders,
+      });
+    }
 
     // Some providers serve HLS playlists without a .m3u8 suffix and with a generic content-type.
     // We sniff the first chunk to detect "#EXTM3U" and rewrite the playlist URLs when needed.
