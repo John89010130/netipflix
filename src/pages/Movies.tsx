@@ -26,7 +26,7 @@ const Movies = () => {
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
-  const [currentVideo, setCurrentVideo] = useState<{ src: string; title: string; poster?: string } | null>(null);
+  const [currentVideo, setCurrentVideo] = useState<{ src: string; title: string; poster?: string; contentId?: string; contentType?: 'MOVIE' } | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<string>('Todos');
   const [showAdultGate, setShowAdultGate] = useState(false);
   const [pendingAdultCategory, setPendingAdultCategory] = useState<string | null>(null);
@@ -172,6 +172,8 @@ const Movies = () => {
       src: item.stream_url,
       title: item.title,
       poster: item.backdrop_url || item.poster_url,
+      contentId: item.id,
+      contentType: 'MOVIE',
     });
   };
 
@@ -289,6 +291,8 @@ const Movies = () => {
           src={currentVideo.src}
           title={currentVideo.title}
           poster={currentVideo.poster}
+          contentId={currentVideo.contentId}
+          contentType={currentVideo.contentType}
           onClose={() => setCurrentVideo(null)}
         />
       )}
