@@ -54,9 +54,7 @@ serve(async (req) => {
     const rangeHeader = req.headers.get('range');
     const looksLikeTs = /\.ts(\?|$)/i.test(decodedUrl);
     const looksLikeMp4 = /\.(mp4|webm|ogg|mov)(\?|$)/i.test(decodedUrl);
-    const looksLikeM3u8 = /\.m3u8(\?|$)/i.test(decodedUrl);
 
-    // IMPORTANTE: Não repassar Origin/Referer do cliente (causa bloqueios)
     const buildHeaders = (opts: { userAgent: string; includeRange: boolean; forceRange: boolean }): HeadersInit => {
       const h: Record<string, string> = {
         'User-Agent': opts.userAgent,
@@ -68,59 +66,28 @@ serve(async (req) => {
         'Accept-Encoding': 'identity',
       };
 
-      // Somente para MP4/arquivos, considerar Range
+      // NUNCA use Range com .ts (streams ao vivo)
       if (opts.includeRange && !looksLikeTs) {
-        if (rangeHeader) {
-          h['Range'] = rangeHeader;
-        } else if (opts.forceRange && looksLikeMp4) {
-          h['Range'] = 'bytes=0-';
-        }
+        if (rangeHeader) h['Range'] = rangeHeader;
+        else if (opts.forceRange && looksLikeMp4) h['Range'] = 'bytes=0-';
       }
 
       return h;
     };
 
-    // Matriz de tentativas baseada no tipo de arquivo
-    const attempts: Array<{ name: string; headers: HeadersInit }> = [];
+    const attempts: Array<{ name: string; headers: HeadersInit }> = [
+      {
+        name: 'vlc_no_range',
+        headers: buildHeaders({ userAgent: 'VLC/3.0.20 LibVLC/3.0.20', includeRange: false, forceRange: false }),
+      },
+    ];
 
-    if (looksLikeTs) {
-      // Para .ts (live streams), tentar vários UAs sem Range
-      attempts.push(
-        { name: 'vlc_ts', headers: buildHeaders({ userAgent: USER_AGENTS.vlc, includeRange: false, forceRange: false }) },
-        { name: 'ffmpeg_ts', headers: buildHeaders({ userAgent: USER_AGENTS.ffmpeg, includeRange: false, forceRange: false }) },
-        { name: 'curl_ts', headers: buildHeaders({ userAgent: USER_AGENTS.curl, includeRange: false, forceRange: false }) },
-        { name: 'browser_ts', headers: buildHeaders({ userAgent: USER_AGENTS.browser, includeRange: false, forceRange: false }) },
-      );
-    } else if (looksLikeMp4) {
-      // Para MP4, tentar com e sem Range
-      attempts.push(
-        { name: 'vlc_mp4_range', headers: buildHeaders({ userAgent: USER_AGENTS.vlc, includeRange: true, forceRange: true }) },
-        { name: 'vlc_mp4_no_range', headers: buildHeaders({ userAgent: USER_AGENTS.vlc, includeRange: false, forceRange: false }) },
-        { name: 'browser_mp4_range', headers: buildHeaders({ userAgent: USER_AGENTS.browser, includeRange: true, forceRange: true }) },
-        { name: 'browser_mp4_no_range', headers: buildHeaders({ userAgent: USER_AGENTS.browser, includeRange: false, forceRange: false }) },
-      );
-
-      // Alguns provedores retornam "404" quando faltam Origin/Referer (anti-leech).
-      // Tentativa extra com Origin + Referer do próprio host do stream.
-      try {
-        const origin = new URL(decodedUrl).origin;
-        attempts.push({
-          name: 'browser_mp4_referer',
-          headers: {
-            ...(buildHeaders({ userAgent: USER_AGENTS.browser, includeRange: true, forceRange: true }) as Record<string, string>),
-            'Origin': origin,
-            'Referer': `${origin}/`,
-          },
-        });
-      } catch {
-        // ignore
-      }
-    } else {
-      // Outros (m3u8, etc)
-      attempts.push(
-        { name: 'vlc_default', headers: buildHeaders({ userAgent: USER_AGENTS.vlc, includeRange: false, forceRange: false }) },
-        { name: 'browser_default', headers: buildHeaders({ userAgent: USER_AGENTS.browser, includeRange: false, forceRange: false }) },
-      );
+    // Apenas adicionar tentativa com Range se NÃO for .ts
+    if (!looksLikeTs) {
+      attempts.unshift({
+        name: 'vlc_with_range',
+        headers: buildHeaders({ userAgent: 'VLC/3.0.20 LibVLC/3.0.20', includeRange: true, forceRange: true }),
+      });
     }
 
     let response: Response | null = null;
