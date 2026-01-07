@@ -7,8 +7,9 @@ import { VideoPlayer } from '@/components/VideoPlayer';
 import { supabase } from '@/integrations/supabase/client';
 import { isAdultCategory } from '@/components/AdultContentGate';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Search as SearchIcon, Film, Tv, PlayCircle } from 'lucide-react';
+import { Search as SearchIcon, Film, Tv, PlayCircle, ChevronDown, ChevronUp, Play } from 'lucide-react';
 import { ContentItem } from '@/types';
+import { cn } from '@/lib/utils';
 
 interface Channel {
   id: string;
@@ -19,6 +20,16 @@ interface Channel {
   stream_url: string;
   content_type: string;
   series_title?: string | null;
+  season_number?: number | null;
+  episode_number?: number | null;
+}
+
+interface SeriesGroup {
+  seriesTitle: string;
+  category: string;
+  poster: string | null;
+  episodes: Channel[];
+  seasons: number[];
 }
 
 const Search = () => {
@@ -27,6 +38,8 @@ const Search = () => {
   
   const [results, setResults] = useState<Channel[]>([]);
   const [loading, setLoading] = useState(true);
+  const [expandedSeries, setExpandedSeries] = useState<string | null>(null);
+  const [expandedSeason, setExpandedSeason] = useState<number | null>(null);
   const [currentVideo, setCurrentVideo] = useState<{ 
     src: string; 
     title: string; 
@@ -48,7 +61,7 @@ const Search = () => {
       .from('active_channels' as any)
       .select('*')
       .or(`name.ilike.%${query}%,series_title.ilike.%${query}%,category.ilike.%${query}%`)
-      .limit(100);
+      .limit(500);
 
     if (error) {
       console.error('Search error:', error);
@@ -69,6 +82,12 @@ const Search = () => {
     searchContent();
   }, [searchContent]);
 
+  useEffect(() => {
+    // Reset expanded state when query changes
+    setExpandedSeries(null);
+    setExpandedSeason(null);
+  }, [query]);
+
   const handlePlay = (channel: Channel) => {
     setCurrentVideo({
       src: channel.stream_url,
@@ -84,6 +103,62 @@ const Search = () => {
   const movieResults = results.filter(r => r.content_type === 'MOVIE');
   const seriesResults = results.filter(r => r.content_type === 'SERIES');
 
+  // Group series by series_title
+  const groupedSeries: SeriesGroup[] = [];
+  const seriesMap = new Map<string, SeriesGroup>();
+
+  seriesResults.forEach(episode => {
+    const title = episode.series_title || episode.name;
+    
+    if (!seriesMap.has(title)) {
+      seriesMap.set(title, {
+        seriesTitle: title,
+        category: episode.category,
+        poster: episode.logo_url,
+        episodes: [],
+        seasons: [],
+      });
+    }
+
+    const group = seriesMap.get(title)!;
+    group.episodes.push(episode);
+    
+    if (episode.season_number && !group.seasons.includes(episode.season_number)) {
+      group.seasons.push(episode.season_number);
+    }
+  });
+
+  seriesMap.forEach(group => {
+    group.seasons.sort((a, b) => a - b);
+    group.episodes.sort((a, b) => {
+      const seasonA = a.season_number || 0;
+      const seasonB = b.season_number || 0;
+      if (seasonA !== seasonB) return seasonA - seasonB;
+      return (a.episode_number || 0) - (b.episode_number || 0);
+    });
+    groupedSeries.push(group);
+  });
+
+  const handleSeriesClick = (seriesTitle: string) => {
+    if (expandedSeries === seriesTitle) {
+      setExpandedSeries(null);
+      setExpandedSeason(null);
+    } else {
+      setExpandedSeries(seriesTitle);
+      // Auto-expand first season
+      const series = groupedSeries.find(s => s.seriesTitle === seriesTitle);
+      if (series && series.seasons.length > 0) {
+        setExpandedSeason(series.seasons[0]);
+      } else {
+        setExpandedSeason(null);
+      }
+    }
+  };
+
+  const getEpisodesForSeason = (series: SeriesGroup, season: number) => {
+    return series.episodes.filter(ep => ep.season_number === season);
+  };
+
   return (
     <div className="min-h-screen bg-background">
       <Navbar />
@@ -98,7 +173,7 @@ const Search = () => {
             </h1>
           </div>
           <p className="text-muted-foreground">
-            {loading ? 'Buscando...' : `${results.length} resultados encontrados`}
+            {loading ? 'Buscando...' : `${movieResults.length + groupedSeries.length + tvResults.length} resultados encontrados`}
           </p>
         </div>
 
@@ -149,31 +224,135 @@ const Search = () => {
               </section>
             )}
 
-            {/* Series */}
-            {seriesResults.length > 0 && (
+            {/* Series - Grouped */}
+            {groupedSeries.length > 0 && (
               <section>
                 <div className="flex items-center gap-3 mb-6">
                   <PlayCircle className="h-5 w-5 text-primary" />
-                  <h2 className="text-xl font-semibold">Séries ({seriesResults.length})</h2>
+                  <h2 className="text-xl font-semibold">Séries ({groupedSeries.length})</h2>
                 </div>
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
-                  {seriesResults.map((channel) => {
-                    const item: ContentItem = {
-                      id: channel.id,
-                      title: channel.series_title || channel.name,
-                      poster_url: channel.logo_url || undefined,
-                      category: channel.category,
-                      type: 'MOVIE',
-                      stream_url: channel.stream_url,
-                    };
-                    return (
-                      <ContentCard
-                        key={channel.id}
-                        item={item}
-                        onPlay={() => handlePlay(channel)}
-                      />
-                    );
-                  })}
+                <div className="space-y-4">
+                  {groupedSeries.map((series) => (
+                    <div 
+                      key={series.seriesTitle} 
+                      className="bg-card rounded-xl overflow-hidden border border-border"
+                    >
+                      {/* Series Header */}
+                      <button
+                        onClick={() => handleSeriesClick(series.seriesTitle)}
+                        className="w-full flex items-center gap-4 p-4 hover:bg-secondary/50 transition-colors"
+                      >
+                        {/* Poster */}
+                        <div className="w-16 h-24 md:w-20 md:h-28 flex-shrink-0 rounded-lg overflow-hidden bg-muted">
+                          {series.poster ? (
+                            <img
+                              src={series.poster}
+                              alt={series.seriesTitle}
+                              className="w-full h-full object-cover"
+                            />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center">
+                              <PlayCircle className="h-8 w-8 text-muted-foreground" />
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Info */}
+                        <div className="flex-1 text-left">
+                          <h3 className="text-lg font-semibold line-clamp-2">{series.seriesTitle}</h3>
+                          <p className="text-sm text-muted-foreground">{series.category}</p>
+                          <p className="text-sm text-muted-foreground mt-1">
+                            {series.seasons.length > 0 
+                              ? `${series.seasons.length} temporada${series.seasons.length > 1 ? 's' : ''} • ${series.episodes.length} episódios`
+                              : `${series.episodes.length} episódios`
+                            }
+                          </p>
+                        </div>
+
+                        {/* Expand Icon */}
+                        <div className="flex-shrink-0">
+                          {expandedSeries === series.seriesTitle ? (
+                            <ChevronUp className="h-6 w-6 text-muted-foreground" />
+                          ) : (
+                            <ChevronDown className="h-6 w-6 text-muted-foreground" />
+                          )}
+                        </div>
+                      </button>
+
+                      {/* Episodes (Expanded) */}
+                      {expandedSeries === series.seriesTitle && (
+                        <div className="border-t border-border animate-fade-in">
+                          {/* Season Tabs */}
+                          {series.seasons.length > 0 && (
+                            <div className="flex gap-2 p-4 overflow-x-auto scrollbar-hide border-b border-border">
+                              {series.seasons.map(season => (
+                                <button
+                                  key={season}
+                                  onClick={() => setExpandedSeason(season)}
+                                  className={cn(
+                                    "px-4 py-2 rounded-full text-sm font-medium transition-colors whitespace-nowrap",
+                                    expandedSeason === season
+                                      ? "bg-primary text-primary-foreground"
+                                      : "bg-secondary text-muted-foreground hover:text-foreground"
+                                  )}
+                                >
+                                  Temporada {season}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+
+                          {/* Episode List */}
+                          <div className="p-4 space-y-2 max-h-[400px] overflow-y-auto">
+                            {(series.seasons.length > 0 && expandedSeason
+                              ? getEpisodesForSeason(series, expandedSeason)
+                              : series.episodes
+                            ).map(episode => (
+                              <button
+                                key={episode.id}
+                                onClick={() => handlePlay(episode)}
+                                className="w-full flex items-center gap-4 p-3 rounded-lg hover:bg-secondary/50 transition-colors text-left group"
+                              >
+                                {/* Episode Thumbnail */}
+                                <div className="w-24 h-14 md:w-32 md:h-18 flex-shrink-0 rounded-md overflow-hidden bg-muted relative">
+                                  {episode.logo_url ? (
+                                    <img
+                                      src={episode.logo_url}
+                                      alt={episode.name}
+                                      className="w-full h-full object-cover"
+                                    />
+                                  ) : (
+                                    <div className="w-full h-full flex items-center justify-center">
+                                      <Play className="h-6 w-6 text-muted-foreground" />
+                                    </div>
+                                  )}
+                                  {/* Play overlay */}
+                                  <div className="absolute inset-0 bg-background/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <Play className="h-8 w-8 text-primary fill-current" />
+                                  </div>
+                                </div>
+
+                                {/* Episode Info */}
+                                <div className="flex-1 min-w-0">
+                                  <p className="font-medium line-clamp-1">
+                                    {episode.season_number && episode.episode_number
+                                      ? `E${episode.episode_number} - ${episode.name.replace(/S\d+E\d+\s*-?\s*/i, '')}`
+                                      : episode.name
+                                    }
+                                  </p>
+                                  {episode.season_number && episode.episode_number && (
+                                    <p className="text-sm text-muted-foreground">
+                                      Temporada {episode.season_number}, Episódio {episode.episode_number}
+                                    </p>
+                                  )}
+                                </div>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ))}
                 </div>
               </section>
             )}
