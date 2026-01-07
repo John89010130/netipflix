@@ -32,6 +32,7 @@ export const ChannelCard = ({ channel, onPlay }: ChannelCardProps) => {
         "relative flex-shrink-0 w-[140px] md:w-[180px] cursor-pointer transition-all duration-300 hover:scale-105 focus:scale-105 group focus:outline-none",
         isFocused && "z-10"
       )}
+      data-tv-focusable
     >
       <div className={cn(
         "relative aspect-video overflow-hidden rounded-lg bg-secondary transition-all",
