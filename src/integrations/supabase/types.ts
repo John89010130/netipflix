@@ -553,6 +553,7 @@ export type Database = {
         Args: { _parent_user_id: string }
         Returns: number
       }
+      delete_channels_by_link: { Args: { p_link_id: string }; Returns: number }
       determine_content_type: {
         Args: { p_category: string; p_name: string }
         Returns: string
