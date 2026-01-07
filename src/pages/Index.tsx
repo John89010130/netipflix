@@ -31,6 +31,7 @@ interface WatchHistoryItem {
   content_id: string;
   content_type: string;
   watched_at: string;
+  progress?: number;
 }
 
 const Index = () => {
@@ -55,7 +56,7 @@ const Index = () => {
         // Fetch watch history
         const { data: historyData, error: historyError } = await supabase
           .from('watch_history')
-          .select('content_id, content_type, watched_at')
+          .select('content_id, content_type, watched_at, progress')
           .eq('user_id', user.id)
           .order('watched_at', { ascending: false })
           .limit(20);
@@ -83,8 +84,9 @@ const Index = () => {
 
         if (!channelsData) return;
 
-        // Create a map for quick lookup
+        // Create maps for quick lookup
         const channelMap = new Map(channelsData.map(c => [c.id, c]));
+        const progressMap = new Map((historyData as WatchHistoryItem[]).map(h => [h.content_id, h.progress || 0]));
 
         // Group by series_title (for series) or keep as-is (for movies/tv)
         const seenSeries = new Set<string>();
@@ -109,6 +111,7 @@ const Index = () => {
               category: channel.category,
               type: 'MOVIE' as const,
               stream_url: channel.stream_url,
+              progress: progressMap.get(channel.id) || 0,
             });
           } else {
             recentItems.push({
@@ -118,6 +121,7 @@ const Index = () => {
               category: channel.category,
               type: channel.content_type === 'TV' ? 'TV' : 'MOVIE',
               stream_url: channel.stream_url,
+              progress: progressMap.get(channel.id) || 0,
             });
           }
 

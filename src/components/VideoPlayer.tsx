@@ -176,6 +176,8 @@ export const VideoPlayer = ({ src, title, poster, contentId, contentType, onClos
   const containerRef = useRef<HTMLDivElement>(null);
   const hlsRef = useRef<Hls | null>(null);
   const mpegtsPlayerRef = useRef<any>(null);
+  const lastSavedProgressRef = useRef<number>(0);
+  const progressSaveIntervalRef = useRef<NodeJS.Timeout | null>(null);
   
   const [isPlaying, setIsPlaying] = useState(autoPlay);
   const [isMuted, setIsMuted] = useState(false);
@@ -194,8 +196,90 @@ export const VideoPlayer = ({ src, title, poster, contentId, contentType, onClos
   const [isCasting, setIsCasting] = useState(false);
   const [isPiP, setIsPiP] = useState(false);
   const [historySaved, setHistorySaved] = useState(false);
+  const [savedProgress, setSavedProgress] = useState<number | null>(null);
+  const [showResumePrompt, setShowResumePrompt] = useState(false);
   
   const { isAdmin, user } = useAuth();
+
+  // Load saved progress when component mounts
+  useEffect(() => {
+    const loadSavedProgress = async () => {
+      if (!user?.id || !contentId) return;
+      
+      try {
+        const { data } = await supabase
+          .from('watch_history')
+          .select('progress')
+          .eq('user_id', user.id)
+          .eq('content_id', contentId)
+          .maybeSingle();
+        
+        if (data?.progress && data.progress > 10) {
+          setSavedProgress(data.progress);
+          setShowResumePrompt(true);
+        }
+      } catch (err) {
+        console.error('Error loading saved progress:', err);
+      }
+    };
+
+    loadSavedProgress();
+  }, [user?.id, contentId]);
+
+  // Resume from saved position
+  const resumeFromSaved = () => {
+    const video = videoRef.current;
+    if (video && savedProgress) {
+      video.currentTime = savedProgress;
+    }
+    setShowResumePrompt(false);
+  };
+
+  const startFromBeginning = () => {
+    setShowResumePrompt(false);
+  };
+
+  // Save progress periodically
+  useEffect(() => {
+    if (!user?.id || !contentId || contentType === 'TV') return;
+
+    const saveProgress = async () => {
+      const video = videoRef.current;
+      if (!video || !isFinite(video.currentTime) || video.currentTime < 10) return;
+      
+      // Only save if progress changed significantly (more than 5 seconds)
+      if (Math.abs(video.currentTime - lastSavedProgressRef.current) < 5) return;
+      
+      lastSavedProgressRef.current = video.currentTime;
+
+      try {
+        await supabase
+          .from('watch_history')
+          .upsert({
+            user_id: user.id,
+            content_id: contentId,
+            content_type: contentType || 'MOVIE',
+            watched_at: new Date().toISOString(),
+            progress: Math.floor(video.currentTime)
+          }, {
+            onConflict: 'user_id,content_id'
+          });
+      } catch (err) {
+        console.error('Error saving progress:', err);
+      }
+    };
+
+    // Save progress every 10 seconds
+    progressSaveIntervalRef.current = setInterval(saveProgress, 10000);
+
+    return () => {
+      if (progressSaveIntervalRef.current) {
+        clearInterval(progressSaveIntervalRef.current);
+      }
+      // Save final progress on unmount
+      saveProgress();
+    };
+  }, [user?.id, contentId, contentType]);
 
   // Save watch history when video starts playing
   useEffect(() => {
@@ -759,6 +843,32 @@ export const VideoPlayer = ({ src, title, poster, contentId, contentType, onClos
             >
               Fechar
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Resume Prompt */}
+      {showResumePrompt && savedProgress && !isLoading && !error && (
+        <div className="absolute inset-0 z-20 flex items-center justify-center bg-background/80 backdrop-blur-sm animate-fade-in">
+          <div className="bg-card border border-border rounded-xl p-6 max-w-md text-center shadow-2xl">
+            <h3 className="text-xl font-semibold mb-2">Continuar assistindo?</h3>
+            <p className="text-muted-foreground mb-6">
+              Você parou em {formatTime(savedProgress)}. Deseja continuar de onde parou?
+            </p>
+            <div className="flex gap-3 justify-center">
+              <button
+                onClick={startFromBeginning}
+                className="px-4 py-2 rounded-lg border border-border text-muted-foreground hover:text-foreground hover:border-foreground transition-colors"
+              >
+                Do início
+              </button>
+              <button
+                onClick={resumeFromSaved}
+                className="px-6 py-2 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+              >
+                Continuar
+              </button>
+            </div>
           </div>
         </div>
       )}

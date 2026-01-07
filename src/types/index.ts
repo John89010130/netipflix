@@ -69,4 +69,6 @@ export interface ContentItem {
   duration?: string;
   rating?: number;
   views_count?: number;
+  progress?: number; // Watch progress in seconds
+  totalDuration?: number; // Total duration in seconds
 }

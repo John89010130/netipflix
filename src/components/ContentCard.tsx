@@ -57,6 +57,16 @@ export const ContentCard = ({ item, index, showRank, onPlay, onAddToList }: Cont
           </div>
         )}
 
+        {/* Progress Bar */}
+        {item.progress && item.progress > 0 && (
+          <div className="absolute bottom-0 left-0 right-0 h-1 bg-muted/50">
+            <div 
+              className="h-full bg-primary transition-all"
+              style={{ width: `${Math.min((item.progress / 3600) * 100, 95)}%` }}
+            />
+          </div>
+        )}
+
         {/* Hover Content */}
         {isHovered && (
           <div className="absolute inset-0 flex flex-col justify-end bg-gradient-card p-3 animate-fade-in">

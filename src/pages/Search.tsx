@@ -156,7 +156,9 @@ const Search = () => {
   };
 
   const getEpisodesForSeason = (series: SeriesGroup, season: number) => {
-    return series.episodes.filter(ep => ep.season_number === season);
+    return series.episodes
+      .filter(ep => ep.season_number === season)
+      .sort((a, b) => (a.episode_number || 0) - (b.episode_number || 0));
   };
 
   return (
