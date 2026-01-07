@@ -1019,7 +1019,7 @@ const Admin = () => {
     }
   };
 
-  // Delete entire M3U list (link and all channels)
+  // Delete entire M3U list (link and all channels) - with batch deletion to avoid timeout
   const deleteM3uList = async (linkId: string, linkUrl: string) => {
     const confirmed = window.confirm(
       `Isso vai DELETAR PERMANENTEMENTE esta lista e TODOS os seus canais.\n\n` +
@@ -1047,7 +1047,7 @@ const Admin = () => {
         .select('role')
         .eq('user_id', session.user.id)
         .in('role', ['ADMIN', 'ADMIN_MASTER'])
-        .single();
+        .maybeSingle();
       
       console.log('User role:', roleData);
       
@@ -1089,15 +1089,61 @@ const Admin = () => {
         return;
       }
       
-      console.log(`Deletando lista (canais serão deletados automaticamente via CASCADE)...`);
+      // Delete channels in batches to avoid timeout
+      console.log(`Deletando ${totalChannels} canais em batches...`);
+      const batchSize = 500;
+      let deletedCount = 0;
+      
+      while (deletedCount < totalChannels) {
+        setImportProgress({ 
+          stage: 'parsing', 
+          message: `Deletando canais... ${deletedCount}/${totalChannels}`, 
+          current: deletedCount, 
+          total: totalChannels 
+        });
+        
+        // Get a batch of channel IDs to delete
+        const { data: channelBatch, error: fetchError } = await supabase
+          .from('channels')
+          .select('id')
+          .eq('m3u_link_id', linkId)
+          .limit(batchSize);
+        
+        if (fetchError) {
+          console.error('Error fetching channel batch:', fetchError);
+          throw new Error(`Erro ao buscar canais: ${fetchError.message}`);
+        }
+        
+        if (!channelBatch || channelBatch.length === 0) {
+          // No more channels to delete
+          break;
+        }
+        
+        const idsToDelete = channelBatch.map(c => c.id);
+        
+        // Delete this batch
+        const { error: deleteError } = await supabase
+          .from('channels')
+          .delete()
+          .in('id', idsToDelete);
+        
+        if (deleteError) {
+          console.error('Error deleting channel batch:', deleteError);
+          throw new Error(`Erro ao deletar canais: ${deleteError.message}`);
+        }
+        
+        deletedCount += channelBatch.length;
+        console.log(`Deleted ${deletedCount}/${totalChannels} channels`);
+      }
+      
       setImportProgress({ 
-        stage: 'parsing', 
-        message: `Deletando lista e ${totalChannels} canais...`, 
-        current: 0, 
+        stage: 'inserting', 
+        message: `Deletando link da lista...`, 
+        current: totalChannels, 
         total: totalChannels 
       });
       
-      // Delete the m3u_link - channels will be automatically deleted via CASCADE
+      // Now delete the m3u_link (no more channels to cascade)
       const { error: deleteLinkError } = await supabase
         .from('m3u_links')
         .delete()
@@ -1111,10 +1157,10 @@ const Admin = () => {
       
       setImportProgress({ 
         stage: 'done', 
-        message: `Lista deletada! ${totalChannels} canais removidos.` 
+        message: `Lista deletada! ${deletedCount} canais removidos.` 
       });
       
-      toast.success(`Lista deletada! ${totalChannels} canais removidos.`);
+      toast.success(`Lista deletada! ${deletedCount} canais removidos.`);
       
       await Promise.all([
         fetchChannels(true),
