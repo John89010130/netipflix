@@ -494,7 +494,35 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      active_channels: {
+        Row: {
+          active: boolean | null
+          category: string | null
+          content_type: string | null
+          country: string | null
+          created_at: string | null
+          episode_number: number | null
+          id: string | null
+          last_test_status: string | null
+          last_tested_at: string | null
+          logo_url: string | null
+          m3u_link_id: string | null
+          name: string | null
+          season_number: number | null
+          series_title: string | null
+          stream_url: string | null
+          updated_at: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "channels_m3u_link_id_fkey"
+            columns: ["m3u_link_id"]
+            isOneToOne: false
+            referencedRelation: "m3u_links"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Functions: {
       can_access_content: {
