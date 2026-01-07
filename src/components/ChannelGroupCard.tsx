@@ -34,8 +34,22 @@ export const ChannelGroupCard = ({ group, onPlay }: ChannelGroupCardProps) => {
     return null;
   };
 
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      onPlay(bestChannel);
+    }
+  };
+
   return (
-    <div className="group relative overflow-hidden rounded-lg bg-card border border-border transition-all hover:border-primary/50">
+    <div 
+      className="group relative overflow-hidden rounded-lg bg-card border border-border transition-all hover:border-primary/50 focus-within:border-primary/50"
+      tabIndex={0}
+      role="button"
+      aria-label={`Assistir ${group.groupName}`}
+      onKeyDown={handleKeyDown}
+      data-tv-focusable
+    >
       {/* Main Card */}
       <div
         className="relative aspect-video cursor-pointer"
@@ -58,13 +72,10 @@ export const ChannelGroupCard = ({ group, onPlay }: ChannelGroupCardProps) => {
         </div>
 
         {/* Hover Overlay */}
-        <div className="absolute inset-0 bg-background/80 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-          <button
-            onClick={handleMainPlay}
-            className="p-3 rounded-full bg-primary text-primary-foreground hover:scale-110 transition-transform"
-          >
+        <div className="absolute inset-0 bg-background/80 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity flex items-center justify-center">
+          <div className="p-3 rounded-full bg-primary text-primary-foreground">
             <Play className="h-6 w-6 fill-current" />
-          </button>
+          </div>
         </div>
 
         {/* Badges */}

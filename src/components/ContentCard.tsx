@@ -38,6 +38,7 @@ export const ContentCard = ({ item, index, showRank, onPlay, onAddToList, onMore
       onFocus={() => setIsFocused(true)}
       onBlur={() => setIsFocused(false)}
       onKeyDown={handleKeyDown}
+      data-tv-focusable
     >
       {/* Rank Number for Top 10 */}
       {showRank && index !== undefined && (

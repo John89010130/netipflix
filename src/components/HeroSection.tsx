@@ -77,13 +77,14 @@ export const HeroSection = ({ items, onPlay, onMoreInfo, rotationInterval = 1000
           </p>
         )}
 
-        {/* Actions */}
+        {/* Actions - TV Focusable */}
         <div className="flex items-center gap-3">
           <Button
             variant="play"
             size="xl"
             onClick={() => onPlay?.(item)}
             className="gap-2"
+            data-tv-focusable
           >
             <Play className="h-6 w-6 fill-current" />
             Assistir
@@ -93,6 +94,7 @@ export const HeroSection = ({ items, onPlay, onMoreInfo, rotationInterval = 1000
             size="xl"
             onClick={() => onMoreInfo?.(item)}
             className="gap-2"
+            data-tv-focusable
           >
             <Info className="h-5 w-5" />
             Mais Informações

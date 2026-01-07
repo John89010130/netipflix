@@ -1,152 +1,254 @@
-import { useEffect, useCallback, useRef } from 'react';
+import { useEffect, useRef, useCallback } from 'react';
+
+type Direction = 'up' | 'down' | 'left' | 'right';
 
 interface FocusableElement {
   element: HTMLElement;
   rect: DOMRect;
 }
 
+const FOCUSABLE_SELECTOR = 'button, a[href], input, select, textarea, [tabindex]:not([tabindex="-1"]), [role="button"], [data-focusable="true"], [data-tv-focusable]';
+
+// Tolerance for grouping elements in the same "row" (vertical alignment)
+const ROW_TOLERANCE = 60;
+
+const getFocusableElements = (): FocusableElement[] => {
+  const elements = document.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR);
+  
+  return Array.from(elements)
+    .filter(el => {
+      const style = window.getComputedStyle(el);
+      // Skip elements that are hidden or disabled
+      if (style.display === 'none' || style.visibility === 'hidden' || el.offsetParent === null || el.hasAttribute('disabled')) {
+        return false;
+      }
+      // Skip elements inside data-skip-tv-nav containers UNLESS they have data-tv-focusable
+      if (el.closest('[data-skip-tv-nav]') && !el.hasAttribute('data-tv-focusable')) {
+        return false;
+      }
+      return true;
+    })
+    .map(element => ({
+      element,
+      rect: element.getBoundingClientRect()
+    }));
+};
+
+// Group elements by their vertical position (row)
+const groupElementsByRow = (elements: FocusableElement[]): Map<number, FocusableElement[]> => {
+  const rows = new Map<number, FocusableElement[]>();
+  
+  elements.forEach(el => {
+    const centerY = el.rect.top + el.rect.height / 2;
+    
+    // Find existing row within tolerance
+    let foundRow = false;
+    for (const [rowY, rowElements] of rows) {
+      if (Math.abs(centerY - rowY) < ROW_TOLERANCE) {
+        rowElements.push(el);
+        foundRow = true;
+        break;
+      }
+    }
+    
+    if (!foundRow) {
+      rows.set(centerY, [el]);
+    }
+  });
+  
+  // Sort elements within each row by X position
+  rows.forEach((rowElements) => {
+    rowElements.sort((a, b) => a.rect.left - b.rect.left);
+  });
+  
+  return rows;
+};
+
+const findNextElement = (
+  current: HTMLElement,
+  direction: Direction,
+  elements: FocusableElement[]
+): HTMLElement | null => {
+  const currentRect = current.getBoundingClientRect();
+  const currentCenterX = currentRect.left + currentRect.width / 2;
+  const currentCenterY = currentRect.top + currentRect.height / 2;
+  
+  const rows = groupElementsByRow(elements);
+  const sortedRowKeys = Array.from(rows.keys()).sort((a, b) => a - b);
+  
+  // Find current row
+  let currentRowIndex = -1;
+  let currentElementIndexInRow = -1;
+  
+  for (let i = 0; i < sortedRowKeys.length; i++) {
+    const rowElements = rows.get(sortedRowKeys[i])!;
+    const elementIndex = rowElements.findIndex(el => el.element === current);
+    if (elementIndex !== -1) {
+      currentRowIndex = i;
+      currentElementIndexInRow = elementIndex;
+      break;
+    }
+  }
+  
+  // If current element not found in rows, find closest element
+  if (currentRowIndex === -1) {
+    let closest: HTMLElement | null = null;
+    let closestDistance = Infinity;
+    
+    elements.forEach(({ element, rect }) => {
+      if (element === current) return;
+      const centerX = rect.left + rect.width / 2;
+      const centerY = rect.top + rect.height / 2;
+      const distance = Math.sqrt(Math.pow(centerX - currentCenterX, 2) + Math.pow(centerY - currentCenterY, 2));
+      if (distance < closestDistance) {
+        closestDistance = distance;
+        closest = element;
+      }
+    });
+    
+    return closest;
+  }
+  
+  const currentRow = rows.get(sortedRowKeys[currentRowIndex])!;
+  
+  switch (direction) {
+    case 'left': {
+      // Move to previous element in same row
+      if (currentElementIndexInRow > 0) {
+        return currentRow[currentElementIndexInRow - 1].element;
+      }
+      return null;
+    }
+    
+    case 'right': {
+      // Move to next element in same row
+      if (currentElementIndexInRow < currentRow.length - 1) {
+        return currentRow[currentElementIndexInRow + 1].element;
+      }
+      return null;
+    }
+    
+    case 'up': {
+      // Move to previous row, try to maintain horizontal position
+      if (currentRowIndex > 0) {
+        const prevRow = rows.get(sortedRowKeys[currentRowIndex - 1])!;
+        // Find element with closest X position
+        let closest = prevRow[0];
+        let closestDistance = Math.abs(closest.rect.left + closest.rect.width / 2 - currentCenterX);
+        
+        prevRow.forEach(el => {
+          const elCenterX = el.rect.left + el.rect.width / 2;
+          const distance = Math.abs(elCenterX - currentCenterX);
+          if (distance < closestDistance) {
+            closestDistance = distance;
+            closest = el;
+          }
+        });
+        
+        return closest.element;
+      }
+      return null;
+    }
+    
+    case 'down': {
+      // Move to next row, try to maintain horizontal position
+      if (currentRowIndex < sortedRowKeys.length - 1) {
+        const nextRow = rows.get(sortedRowKeys[currentRowIndex + 1])!;
+        // Find element with closest X position
+        let closest = nextRow[0];
+        let closestDistance = Math.abs(closest.rect.left + closest.rect.width / 2 - currentCenterX);
+        
+        nextRow.forEach(el => {
+          const elCenterX = el.rect.left + el.rect.width / 2;
+          const distance = Math.abs(elCenterX - currentCenterX);
+          if (distance < closestDistance) {
+            closestDistance = distance;
+            closest = el;
+          }
+        });
+        
+        return closest.element;
+      }
+      return null;
+    }
+  }
+  
+  return null;
+};
+
 export const useTVNavigation = () => {
   const containerRef = useRef<HTMLDivElement>(null);
 
-  const getFocusableElements = useCallback((): FocusableElement[] => {
-    const container = containerRef.current || document;
-    const selector = 'button, [role="button"], a[href], [tabindex]:not([tabindex="-1"]), input, select, textarea, [data-focusable="true"]';
-    const elements = container.querySelectorAll<HTMLElement>(selector);
-    
-    return Array.from(elements)
-      .filter(el => {
-        const style = window.getComputedStyle(el);
-        // Skip elements that are hidden or disabled
-        if (style.display === 'none' || style.visibility === 'hidden' || el.offsetParent === null || el.hasAttribute('disabled')) {
-          return false;
-        }
-        // Skip hero section elements (they have data-skip-tv-nav)
-        if (el.closest('[data-skip-tv-nav]')) {
-          return false;
-        }
-        return true;
-      })
-      .map(element => ({
-        element,
-        rect: element.getBoundingClientRect(),
-      }));
-  }, []);
-
-  const findNextElement = useCallback((
-    current: FocusableElement,
-    direction: 'up' | 'down' | 'left' | 'right',
-    elements: FocusableElement[]
-  ): FocusableElement | null => {
-    const { rect } = current;
-    const centerX = rect.left + rect.width / 2;
-    const centerY = rect.top + rect.height / 2;
-
-    let candidates = elements.filter(el => el.element !== current.element);
-
-    // Filter by direction
-    switch (direction) {
-      case 'up':
-        candidates = candidates.filter(el => el.rect.bottom <= rect.top + 10);
-        break;
-      case 'down':
-        candidates = candidates.filter(el => el.rect.top >= rect.bottom - 10);
-        break;
-      case 'left':
-        candidates = candidates.filter(el => el.rect.right <= rect.left + 10);
-        break;
-      case 'right':
-        candidates = candidates.filter(el => el.rect.left >= rect.right - 10);
-        break;
-    }
-
-    if (candidates.length === 0) return null;
-
-    // Find closest element
-    return candidates.reduce((closest, el) => {
-      const elCenterX = el.rect.left + el.rect.width / 2;
-      const elCenterY = el.rect.top + el.rect.height / 2;
-      
-      const closestCenterX = closest.rect.left + closest.rect.width / 2;
-      const closestCenterY = closest.rect.top + closest.rect.height / 2;
-
-      let elDistance: number;
-      let closestDistance: number;
-
-      if (direction === 'up' || direction === 'down') {
-        // Prioritize vertical distance, then horizontal alignment
-        elDistance = Math.abs(elCenterY - centerY) + Math.abs(elCenterX - centerX) * 0.5;
-        closestDistance = Math.abs(closestCenterY - centerY) + Math.abs(closestCenterX - centerX) * 0.5;
-      } else {
-        // Prioritize horizontal distance, then vertical alignment
-        elDistance = Math.abs(elCenterX - centerX) + Math.abs(elCenterY - centerY) * 0.5;
-        closestDistance = Math.abs(closestCenterX - centerX) + Math.abs(closestCenterY - centerY) * 0.5;
-      }
-
-      return elDistance < closestDistance ? el : closest;
-    });
-  }, []);
-
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
-    const key = e.key;
+    const activeElement = document.activeElement as HTMLElement;
     
-    // Map arrow keys and common TV remote keys
-    const directionMap: Record<string, 'up' | 'down' | 'left' | 'right'> = {
+    // Handle navigation keys
+    const keyDirectionMap: Record<string, Direction> = {
       'ArrowUp': 'up',
       'ArrowDown': 'down',
       'ArrowLeft': 'left',
       'ArrowRight': 'right',
     };
 
-    const direction = directionMap[key];
-
+    const direction = keyDirectionMap[e.key];
+    
     if (direction) {
-      e.preventDefault();
-      
-      const elements = getFocusableElements();
-      const activeElement = document.activeElement as HTMLElement;
-      
-      const currentFocusable = elements.find(el => el.element === activeElement);
-      
-      if (!currentFocusable) {
-        // Focus first element if nothing is focused
-        if (elements.length > 0) {
-          elements[0].element.focus();
+      // Don't interfere with input fields
+      if (activeElement?.tagName === 'INPUT' || activeElement?.tagName === 'TEXTAREA') {
+        if (direction === 'left' || direction === 'right') {
+          return; // Allow normal cursor movement in inputs
         }
+      }
+      
+      e.preventDefault();
+      const elements = getFocusableElements();
+      
+      if (elements.length === 0) return;
+      
+      // If no element is focused, focus the first one
+      if (!activeElement || !elements.find(e => e.element === activeElement)) {
+        elements[0].element.focus();
         return;
       }
-
-      const nextElement = findNextElement(currentFocusable, direction, elements);
+      
+      const nextElement = findNextElement(activeElement, direction, elements);
       if (nextElement) {
-        nextElement.element.focus();
-        nextElement.element.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
+        nextElement.focus();
+        // Scroll into view if needed
+        nextElement.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
       }
     }
-
-    // Enter key to click/activate
-    if (key === 'Enter' || key === ' ') {
-      const activeElement = document.activeElement as HTMLElement;
+    
+    // Handle Enter/Space for activation
+    if (e.key === 'Enter' || e.key === ' ') {
+      if (activeElement?.tagName === 'INPUT' || activeElement?.tagName === 'TEXTAREA') {
+        return; // Don't interfere with form inputs
+      }
+      
       if (activeElement && activeElement !== document.body) {
-        // Don't prevent default for inputs
-        if (activeElement.tagName !== 'INPUT' && activeElement.tagName !== 'TEXTAREA') {
+        // Check if element already handles these keys natively
+        if (activeElement.tagName === 'BUTTON' || activeElement.tagName === 'A') {
+          return; // Let native behavior handle it
+        }
+        
+        // For custom focusable elements, trigger click
+        if (activeElement.getAttribute('role') === 'button' || activeElement.hasAttribute('data-focusable') || activeElement.hasAttribute('data-tv-focusable')) {
           e.preventDefault();
           activeElement.click();
         }
       }
     }
-
-    // Back button (Escape or Backspace on some remotes)
-    if (key === 'Escape' || key === 'Backspace') {
-      // Only handle if not in an input
-      if (document.activeElement?.tagName !== 'INPUT' && document.activeElement?.tagName !== 'TEXTAREA') {
-        // Check for close buttons or modals
-        const closeButton = document.querySelector('[data-close], [aria-label*="close"], [aria-label*="fechar"]') as HTMLElement;
-        if (closeButton) {
-          e.preventDefault();
-          closeButton.click();
-        }
+    
+    // Handle Back/Escape to close modals or go back
+    if (e.key === 'Escape' || e.key === 'Backspace') {
+      // Find and click close button in open modal/dialog
+      const closeButton = document.querySelector('[data-radix-dialog-close], [aria-label="Close"], .modal-close');
+      if (closeButton instanceof HTMLElement) {
+        e.preventDefault();
+        closeButton.click();
       }
     }
-  }, [getFocusableElements, findNextElement]);
+  }, []);
 
   useEffect(() => {
     document.addEventListener('keydown', handleKeyDown);
@@ -164,18 +266,19 @@ export const tvFocusStyles = `
   }
   
   *:focus-visible {
-    outline: 2px solid hsl(var(--foreground) / 0.5) !important;
-    outline-offset: 2px !important;
+    outline: 2px solid hsl(var(--foreground) / 0.6) !important;
+    outline-offset: 3px !important;
     border-radius: 8px;
-    box-shadow: 0 0 20px hsl(var(--foreground) / 0.15) !important;
+    box-shadow: 0 0 20px hsl(var(--foreground) / 0.2) !important;
   }
   
   button:focus-visible,
   a:focus-visible,
   [role="button"]:focus-visible,
-  [data-focusable="true"]:focus-visible {
+  [data-focusable="true"]:focus-visible,
+  [data-tv-focusable]:focus-visible {
     transform: scale(1.03);
-    transition: transform 0.2s ease-out, box-shadow 0.2s ease-out;
+    transition: transform 0.2s ease-out, box-shadow 0.2s ease-out, outline 0.2s ease-out;
     z-index: 10;
     position: relative;
   }
