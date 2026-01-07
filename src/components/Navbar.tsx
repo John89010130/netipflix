@@ -23,6 +23,7 @@ export const Navbar = () => {
   const [isScrolled, setIsScrolled] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
   const location = useLocation();
   const navigate = useNavigate();
   const { profile, signOut, isAdmin, permissions } = useAuth();
@@ -104,12 +105,26 @@ export const Navbar = () => {
               <Search className="h-5 w-5" />
             </button>
             {isSearchOpen && (
-              <input
-                type="text"
-                placeholder="Títulos, pessoas, gêneros"
-                className="flex-1 bg-transparent py-2 pl-2 text-sm outline-none placeholder:text-muted-foreground"
-                autoFocus
-              />
+              <form 
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  if (searchQuery.trim()) {
+                    navigate(`/search?q=${encodeURIComponent(searchQuery.trim())}`);
+                    setIsSearchOpen(false);
+                    setSearchQuery('');
+                  }
+                }}
+                className="flex-1"
+              >
+                <input
+                  type="text"
+                  placeholder="Títulos, pessoas, gêneros"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full bg-transparent py-2 pl-2 text-sm outline-none placeholder:text-muted-foreground"
+                  autoFocus
+                />
+              </form>
             )}
           </div>
 
