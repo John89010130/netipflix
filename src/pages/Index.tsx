@@ -323,6 +323,17 @@ const Index = () => {
       )}
 
       <main className="relative z-10 -mt-32 px-4 md:px-12 space-y-12 pb-16">
+        {/* ========== ASSISTIDO RECENTEMENTE ========== */}
+        {!loading && recentlyWatched.length > 0 && (
+          <section>
+            <ContentCarousel
+              title="Assistido Recentemente"
+              items={recentlyWatched}
+              onPlay={handlePlay}
+            />
+          </section>
+        )}
+
         {/* ========== FILMES ========== */}
         <section>
           <div className="flex items-center justify-between mb-6">
@@ -345,15 +356,6 @@ const Index = () => {
             </div>
           ) : filmsAsContent.length > 0 ? (
             <div className="space-y-8">
-              {/* Recently Watched */}
-              {recentlyWatched.length > 0 && (
-                <ContentCarousel
-                  title="Assistido Recentemente"
-                  items={recentlyWatched}
-                  onPlay={handlePlay}
-                />
-              )}
-
               {/* By Category */}
               {filmCategories.slice(0, 2).map((category) => (
                 filmsByCategory[category]?.length > 0 && (
