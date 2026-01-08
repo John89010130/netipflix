@@ -2,6 +2,5 @@ name = "netipflix-proxy"
 main = "worker.js"
 compatibility_date = "2024-01-01"
 
-[env.production]
-workers_dev = false
-route = "https://netipflix-proxy.workers.dev/*"
+# Habilita o subdomínio *.workers.dev para testar sem rota custom
+workers_dev = true
