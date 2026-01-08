@@ -34,6 +34,9 @@ jobs:
         run: npm run build
         env:
           NODE_ENV: production
+          VITE_STREAM_PROXY_URL: https://stream-proxy.john89010130.workers.dev/stream
+          VITE_SUPABASE_URL: https://kwhusiffihtdmmvaqgxx.supabase.co
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
 
       - name: Setup Pages
         uses: actions/configure-pages@v4
