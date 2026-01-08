@@ -147,17 +147,15 @@ const extractUnderlyingFromProxy = (maybeProxyUrl: string): string | null => {
 const getProxiedUrl = (url: string): string => {
   if (!/^https?:\/\//i.test(url)) return url;
 
-  // 🏠 Em localhost: NUNCA usar proxy (funciona direto com HTTP)
+  // 🏠 Em localhost: usar proxy local na porta 3000
   const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
   if (isLocalhost) {
-    console.log('🏠 Localhost detectado - usando URL direta sem proxy');
-    return url;
+    console.log('🏠 Localhost - usando proxy local');
+    return `http://localhost:3000?url=${encodeURIComponent(url)}`;
   }
 
-  // 🌐 Em produção (HTTPS): SEMPRE usar proxy para evitar mixed content
-  console.log('🌐 Produção detectada - usando proxy Supabase');
-
-  // If it's already proxied (legacy or canonical), re-canonicalize to our HTTPS /functions/v1 endpoint
+  // 🌐 Em produção: usar proxy Supabase
+  console.log('🌐 Produção - usando proxy Supabase');
   const underlying = extractUnderlyingFromProxy(url);
   if (underlying) {
     return `${SUPABASE_URL}/functions/v1/stream-proxy?url=${encodeURIComponent(underlying)}`;
