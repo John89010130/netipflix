@@ -232,18 +232,33 @@ serve(async (req) => {
       }
     }
 
-    // Se nenhuma tentativa funcionou, retornar o último status (não 502)
+    // Se nenhuma tentativa funcionou, retornar o status MAIS informativo
     if (!response || !response.ok) {
-      const finalStatus = lastStatus || 502;
-      const hint = finalStatus === 404 ? 'Stream não encontrado no servidor' 
-                 : finalStatus === 403 ? 'Acesso bloqueado pelo servidor'
-                 : 'Todas as tentativas falharam';
-      
+      const observedStatuses = attemptResults
+        .map((a) => a.status)
+        .filter((s) => typeof s === 'number' && s > 0);
+
+      // Muitos servidores de IPTV devolvem 403 quando bloqueiam IP/Datacenter.
+      // Algumas tentativas “disfarçadas” podem retornar 404, então priorizamos 403.
+      const finalStatus =
+        observedStatuses.includes(403) ? 403 :
+        observedStatuses.includes(401) ? 401 :
+        observedStatuses.includes(404) ? 404 :
+        observedStatuses.includes(408) ? 408 :
+        lastStatus || 502;
+
+      const hint =
+        finalStatus === 403 ? 'Acesso bloqueado pelo servidor (possível bloqueio por IP)' :
+        finalStatus === 401 ? 'Não autorizado (credenciais inválidas/expiradas)' :
+        finalStatus === 404 ? 'Stream não encontrado no servidor' :
+        finalStatus === 408 ? 'Timeout ao conectar no servidor' :
+        'Todas as tentativas falharam';
+
       console.error('Stream fetch failed:', finalStatus, lastStatusText, 'attempts:', attemptResults);
-      
+
       return new Response(
-        JSON.stringify({ 
-          error: `Falha ao buscar stream: ${finalStatus}`, 
+        JSON.stringify({
+          error: `Falha ao buscar stream: ${finalStatus}`,
           hint,
           attempts: attemptResults,
           url: decodedUrl,
