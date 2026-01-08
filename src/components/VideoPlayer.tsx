@@ -144,31 +144,18 @@ const extractUnderlyingFromProxy = (maybeProxyUrl: string): string | null => {
   }
 };
 
+const PROXY_PORT = (import.meta.env.VITE_PROXY_PORT || '3000').trim();
+
 const getProxiedUrl = (url: string): string => {
-  // Em localhost E URL HTTPS: pode usar direto
-  const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-  const isHttps = url.startsWith('https://');
-  
-  if (isLocalhost && isHttps) {
-    return url;
+  // Sempre proxy para evitar HSTS/SSL/CORS em HTTP/HTTPS externos
+  const cleanUrl = url.replace(/^(https?:\/\/)+(https?:\/\/)/, '$1');
+
+  const prefixes = [`http://localhost:${PROXY_PORT}/`, `https://localhost:${PROXY_PORT}/`];
+  if (prefixes.some((p) => cleanUrl.startsWith(p))) {
+    return cleanUrl;
   }
 
-  // URLs HTTP ou produção: SEMPRE usar proxy (evita mixed content)
-  // Base prioritária: variável de ambiente customizada (ex.: função Supabase)
-  const customProxy = import.meta.env.VITE_STREAM_PROXY_URL as string | undefined;
-  if (customProxy) {
-    const base = customProxy.endsWith('/') ? customProxy.slice(0, -1) : customProxy;
-    return `${base}?url=${encodeURIComponent(url)}`;
-  }
-
-  // Fallback nativo: função Edge do Supabase (HTTPS + CORS liberado)
-  if (SUPABASE_URL) {
-    return `${SUPABASE_URL}/functions/v1/stream-proxy?url=${encodeURIComponent(url)}`;
-  }
-
-  // Sem proxy disponível: retornar URL original (poderá falhar por CORS/mixed content)
-  console.warn('⚠️ Nenhum proxy configurado - URL HTTP pode falhar em produção');
-  return url;
+  return `http://localhost:${PROXY_PORT}/${cleanUrl}`;
 };
 
 const getUnderlyingUrl = (url: string): string => {
@@ -401,20 +388,17 @@ export const VideoPlayer = ({ src, title, poster, contentId, contentType, onClos
     console.log('🎬 Iniciando player para:', src);
 
     const initPlayer = async () => {
-      // SEMPRE usar proxy em produção (evita mixed content HTTP→HTTPS)
-      // GitHub Pages, Lovable, etc = produção
+      // SEMPRE usar proxy (local ou produção) para evitar HSTS/SSL/CORS
       const isLocalDev = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-      const isProduction = !isLocalDev;
       const urlForDetection = src; // original para detectar tipo
-      const urlForPlayback = isProduction ? proxiedUrl : src; // FORÇA proxy em produção
+      const urlForPlayback = proxiedUrl; // playback sempre proxied
 
       console.log('🔧 Configuração:', { 
         hostname: window.location.hostname,
-        isLocalDev, 
-        isProduction,
+        isLocalDev,
         original: src, 
         playback: urlForPlayback,
-        usingProxy: isProduction 
+        usingProxy: true 
       });
 
       try {
@@ -451,11 +435,18 @@ export const VideoPlayer = ({ src, title, poster, contentId, contentType, onClos
           return;
         }
 
-        // 5. Tipo desconhecido - tentar HLS como fallback
-        console.log('❓ Tipo desconhecido - tentando HLS');
-        setStreamInfo({ type: 'hls' });
-        await initHls(urlForPlayback, video);
-        return;
+        // 5. Tipo desconhecido - priorizar MPEG-TS (a maioria dos streams IPTV)
+        console.log('❓ Tipo desconhecido - tentando MPEG-TS, depois HLS');
+        try {
+          setStreamInfo({ type: 'mpegts' });
+          await initMpegts(urlForPlayback, video, 'mpegts');
+          return;
+        } catch (e) {
+          console.warn('Fallback para HLS após falha MPEG-TS', e);
+          setStreamInfo({ type: 'hls' });
+          await initHls(urlForPlayback, video);
+          return;
+        }
 
       } catch (err) {
         if (abortController.signal.aborted) return;
@@ -478,11 +469,15 @@ export const VideoPlayer = ({ src, title, poster, contentId, contentType, onClos
         const hls = new Hls({
           enableWorker: true,
           lowLatencyMode: false,
-          fragLoadingMaxRetry: 3,
-          manifestLoadingMaxRetry: 3,
-          levelLoadingMaxRetry: 3,
+          fragLoadingMaxRetry: 2,
+          manifestLoadingMaxRetry: 2,
+          levelLoadingMaxRetry: 2,
+          manifestLoadTimeOut: 20000,
+          manifestLoadingTimeOut: 20000,
+          manifestLoadingMaxRetryTimeout: 20000,
+          fragLoadTimeout: 20000,
           xhrSetup: (xhr) => {
-            xhr.timeout = 15000;
+            xhr.timeout = 20000;
           },
         });
         

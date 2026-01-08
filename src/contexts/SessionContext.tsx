@@ -55,6 +55,8 @@ interface SessionContextType {
 
 const SessionContext = createContext<SessionContextType | undefined>(undefined);
 
+// HEARTBEAT DESABILITADO
+const HEARTBEAT_DISABLED = true;
 const HEARTBEAT_INTERVAL = 30000; // 30 seconds
 
 export const SessionProvider = ({ children }: { children: ReactNode }) => {
@@ -208,7 +210,7 @@ export const SessionProvider = ({ children }: { children: ReactNode }) => {
 
   // Heartbeat to keep session alive
   useEffect(() => {
-    if (!currentSession || isAdmin || isAdminMaster) return;
+    if (HEARTBEAT_DISABLED || !currentSession || isAdmin || isAdminMaster) return;
 
     const heartbeat = async () => {
       try {

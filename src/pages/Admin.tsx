@@ -768,30 +768,8 @@ const Admin = () => {
   };
 
   const startBackgroundTest = async () => {
-    try {
-      const response = await fetch(`${SUPABASE_URL}/functions/v1/test-streams-background`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-      });
-      
-      const data = await response.json();
-      
-      if (!response.ok) {
-        if (data.job) {
-          setTestJob(data.job);
-          toast.info('Um teste já está em andamento');
-        } else {
-          toast.error(data.error || 'Erro ao iniciar teste');
-        }
-        return;
-      }
-      
-      setTestJob(data.job);
-      toast.success('Teste iniciado em background! Você pode sair da página.');
-    } catch (error) {
-      console.error('Error starting test:', error);
-      toast.error('Erro ao iniciar teste de streams');
-    }
+    toast.error('Testes de stream desabilitados');
+    return;
   };
 
   const isTestRunning = testJob?.status === 'running' || testJob?.status === 'pending';
