@@ -151,20 +151,20 @@ const getProxiedUrl = (url: string): string => {
     return url;
   }
 
-  // Base prioritária: variável de ambiente customizada (Cloudflare Worker ou outro proxy HTTPS com CORS liberado)
+  // Base prioritária: variável de ambiente customizada (ex.: função Supabase)
   const customProxy = import.meta.env.VITE_STREAM_PROXY_URL as string | undefined;
   if (customProxy) {
     const base = customProxy.endsWith('/') ? customProxy.slice(0, -1) : customProxy;
     return `${base}?url=${encodeURIComponent(url)}`;
   }
 
-  // Fallback: função Edge do Supabase (pode exigir supabase configured)
+  // Fallback nativo: função Edge do Supabase (HTTPS + CORS liberado)
   if (SUPABASE_URL) {
     return `${SUPABASE_URL}/functions/v1/stream-proxy?url=${encodeURIComponent(url)}`;
   }
 
-  // Último recurso (não recomendado): AllOrigins
-  return `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
+  // Sem proxy disponível: retornar URL original (poderá falhar por CORS em produção)
+  return url;
 };
 
 const getUnderlyingUrl = (url: string): string => {
