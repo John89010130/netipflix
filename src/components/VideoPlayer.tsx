@@ -405,54 +405,29 @@ export const VideoPlayer = ({ src, title, poster, contentId, contentType, onClos
 
     const initPlayer = async () => {
       try {
-        // If it obviously looks like an MP4/WebM/etc
-        // ESTRATÉGIA: Tentar URL direta primeiro (usa IP do usuário)
-        // Se falhar, tentar proxy como fallback
+        // MP4/WebM/etc - usar proxy que repassa o IP do usuário
         if (looksLikeDirectFile) {
-          console.log('Direct MP4/WebM file detected');
+          console.log('Direct MP4/WebM file detected, using proxy with user IP forwarding');
           setStreamInfo({ type: 'mp4' });
           
-          // Lista de URLs para tentar: direto primeiro, proxy depois
-          const urlsToTry = [src, streamUrl];
+          // Usar APENAS o proxy (que agora repassa o IP do usuário)
+          // Isso evita o erro de Mixed Content (HTTP dentro de HTTPS)
+          console.log(`Carregando MP4 via proxy: ${streamUrl.substring(0, 80)}...`);
+          video.src = streamUrl;
+          video.load();
           
-          for (const urlToTry of urlsToTry) {
-            console.log(`Tentando MP4 com: ${urlToTry.substring(0, 80)}...`);
-            try {
-              await new Promise<void>((resolve, reject) => {
-                const timeoutId = setTimeout(() => reject(new Error('Timeout')), 10000);
-                
-                const handleCanPlay = () => {
-                  clearTimeout(timeoutId);
-                  video.removeEventListener('canplay', handleCanPlay);
-                  video.removeEventListener('error', handleError);
-                  resolve();
-                };
-                
-                const handleError = () => {
-                  clearTimeout(timeoutId);
-                  video.removeEventListener('canplay', handleCanPlay);
-                  video.removeEventListener('error', handleError);
-                  reject(new Error('Video load error'));
-                };
-                
-                video.addEventListener('canplay', handleCanPlay);
-                video.addEventListener('error', handleError);
-                video.src = urlToTry;
-                video.load();
-              });
-              
-              console.log(`✅ MP4 carregado com sucesso: ${urlToTry.substring(0, 50)}...`);
-              setIsLoading(false);
-              if (autoPlay) video.play().catch(() => setIsPlaying(false));
-              return;
-            } catch (err) {
-              console.warn(`❌ Falha ao carregar: ${urlToTry.substring(0, 50)}...`, err);
-            }
-          }
+          video.oncanplay = () => {
+            console.log('✅ MP4 carregado com sucesso via proxy');
+            setIsLoading(false);
+            if (autoPlay) video.play().catch(() => setIsPlaying(false));
+          };
           
-          // Se todas tentativas falharam, mostrar erro com opção de player externo
-          setError('Não foi possível reproduzir. Tente abrir em um player externo.');
-          setIsLoading(false);
+          video.onerror = () => {
+            console.error('❌ Falha ao carregar MP4 via proxy');
+            setError('Não foi possível reproduzir o vídeo. O servidor pode estar bloqueando a conexão.');
+            setIsLoading(false);
+          };
+          
           return;
         }
 

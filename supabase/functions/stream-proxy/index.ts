@@ -2,17 +2,9 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, range',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, range, x-forwarded-for, x-real-ip',
   'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS',
   'Access-Control-Expose-Headers': 'Content-Length, Content-Range, Content-Type, Accept-Ranges, X-Stream-Type',
-};
-
-// User agents matrix para compatibilidade máxima
-const USER_AGENTS = {
-  vlc: 'VLC/3.0.20 LibVLC/3.0.20',
-  ffmpeg: 'Lavf/60.16.100',
-  curl: 'curl/8.4.0',
-  browser: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
 };
 
 serve(async (req) => {
@@ -48,68 +40,147 @@ serve(async (req) => {
         // Ignore parsing errors
       }
     }
+
+    // ============================================
+    // CAPTURAR IP REAL DO USUÁRIO
+    // ============================================
+    const clientIp = req.headers.get('cf-connecting-ip') 
+                  || req.headers.get('x-real-ip')
+                  || req.headers.get('x-forwarded-for')?.split(',')[0]?.trim()
+                  || '';
     
-    console.log('Proxying stream:', decodedUrl, 'method:', req.method);
+    console.log('Proxying stream:', decodedUrl, 'method:', req.method, 'client-ip:', clientIp);
 
     const rangeHeader = req.headers.get('range');
     const looksLikeTs = /\.ts(\?|$)/i.test(decodedUrl);
     const looksLikeMp4 = /\.(mp4|webm|ogg|mov)(\?|$)/i.test(decodedUrl);
 
-    const buildHeaders = (opts: { userAgent: string; includeRange: boolean; forceRange: boolean; referer?: string }): HeadersInit => {
-      const h: Record<string, string> = {
-        'User-Agent': opts.userAgent,
-        'Accept': '*/*',
-        'Accept-Language': 'en-US,en;q=0.9,pt-BR;q=0.8,pt;q=0.7',
-        'Connection': 'keep-alive',
-        'Cache-Control': 'no-cache',
-        'Pragma': 'no-cache',
-        'Accept-Encoding': 'identity',
-      };
+    // Extrair origem da URL para Referer
+    let urlOrigin = '';
+    let urlHost = '';
+    try {
+      const parsed = new URL(decodedUrl);
+      urlOrigin = parsed.origin;
+      urlHost = parsed.host;
+    } catch {}
 
-      // Adicionar Referer do próprio servidor (alguns IPTV verificam)
-      if (opts.referer) {
-        h['Referer'] = opts.referer;
-        h['Origin'] = new URL(opts.referer).origin;
+    // ============================================
+    // BUILDER DE HEADERS REALISTAS
+    // ============================================
+    const buildHeaders = (opts: { 
+      profile: 'chrome' | 'firefox' | 'mobile' | 'vlc'; 
+      includeRange: boolean;
+      includeClientIp: boolean;
+    }): HeadersInit => {
+      const h: Record<string, string> = {};
+
+      // Headers de IP do usuário (CRÍTICO para IPTV)
+      if (opts.includeClientIp && clientIp) {
+        h['X-Forwarded-For'] = clientIp;
+        h['X-Real-IP'] = clientIp;
+        h['CF-Connecting-IP'] = clientIp;
+        h['True-Client-IP'] = clientIp;
       }
 
-      // NUNCA use Range com .ts (streams ao vivo)
-      if (opts.includeRange && !looksLikeTs) {
-        if (rangeHeader) h['Range'] = rangeHeader;
-        else if (opts.forceRange && looksLikeMp4) h['Range'] = 'bytes=0-';
+      // Perfis de User-Agent realistas
+      switch (opts.profile) {
+        case 'chrome':
+          h['User-Agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+          h['Accept'] = 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7';
+          h['Accept-Language'] = 'en-US,en;q=0.9,pt-BR;q=0.8,pt;q=0.7';
+          h['Accept-Encoding'] = 'identity';
+          h['Sec-Ch-Ua'] = '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"';
+          h['Sec-Ch-Ua-Mobile'] = '?0';
+          h['Sec-Ch-Ua-Platform'] = '"Windows"';
+          h['Sec-Fetch-Dest'] = 'video';
+          h['Sec-Fetch-Mode'] = 'no-cors';
+          h['Sec-Fetch-Site'] = 'cross-site';
+          h['DNT'] = '1';
+          break;
+        case 'firefox':
+          h['User-Agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0';
+          h['Accept'] = 'video/webm,video/ogg,video/*;q=0.9,application/ogg;q=0.7,audio/*;q=0.6,*/*;q=0.5';
+          h['Accept-Language'] = 'en-US,en;q=0.5';
+          h['Accept-Encoding'] = 'identity';
+          h['Sec-Fetch-Dest'] = 'video';
+          h['Sec-Fetch-Mode'] = 'no-cors';
+          h['Sec-Fetch-Site'] = 'cross-site';
+          h['DNT'] = '1';
+          break;
+        case 'mobile':
+          h['User-Agent'] = 'Mozilla/5.0 (Linux; Android 13; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.144 Mobile Safari/537.36';
+          h['Accept'] = '*/*';
+          h['Accept-Language'] = 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7';
+          h['Accept-Encoding'] = 'identity';
+          h['Sec-Ch-Ua'] = '"Not_A Brand";v="8", "Chromium";v="120"';
+          h['Sec-Ch-Ua-Mobile'] = '?1';
+          h['Sec-Ch-Ua-Platform'] = '"Android"';
+          h['Sec-Fetch-Dest'] = 'video';
+          h['Sec-Fetch-Mode'] = 'no-cors';
+          h['Sec-Fetch-Site'] = 'cross-site';
+          break;
+        case 'vlc':
+          h['User-Agent'] = 'VLC/3.0.20 LibVLC/3.0.20';
+          h['Accept'] = '*/*';
+          h['Accept-Encoding'] = 'identity';
+          break;
+      }
+
+      // Connection keep-alive
+      h['Connection'] = 'keep-alive';
+      h['Cache-Control'] = 'no-cache';
+      h['Pragma'] = 'no-cache';
+
+      // Referer dinâmico baseado no domínio do stream
+      if (urlOrigin && opts.profile !== 'vlc') {
+        h['Referer'] = urlOrigin + '/';
+        h['Origin'] = urlOrigin;
+      }
+
+      // Host header (alguns servidores verificam)
+      if (urlHost) {
+        h['Host'] = urlHost;
+      }
+
+      // Range header - NUNCA para .ts (streams ao vivo)
+      if (opts.includeRange && !looksLikeTs && rangeHeader) {
+        h['Range'] = rangeHeader;
       }
 
       return h;
     };
 
-    // Extrair origem da URL para Referer
-    let urlOrigin = '';
-    try {
-      urlOrigin = new URL(decodedUrl).origin;
-    } catch {};
-
+    // ============================================
+    // ESTRATÉGIAS DE TENTATIVA
+    // ============================================
     const attempts: Array<{ name: string; headers: HeadersInit }> = [
-      // Tentativa 1: Browser real com Referer
+      // Tentativa 1: Chrome com IP do usuário e Referer
       {
-        name: 'browser_with_referer',
-        headers: buildHeaders({ 
-          userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36', 
-          includeRange: false, 
-          forceRange: false,
-          referer: urlOrigin + '/',
-        }),
+        name: 'chrome_with_ip',
+        headers: buildHeaders({ profile: 'chrome', includeRange: false, includeClientIp: true }),
       },
-      // Tentativa 2: VLC sem Range
+      // Tentativa 2: Firefox com IP do usuário
       {
-        name: 'vlc_no_range',
-        headers: buildHeaders({ userAgent: 'VLC/3.0.20 LibVLC/3.0.20', includeRange: false, forceRange: false }),
+        name: 'firefox_with_ip',
+        headers: buildHeaders({ profile: 'firefox', includeRange: false, includeClientIp: true }),
+      },
+      // Tentativa 3: Mobile (Android) com IP do usuário
+      {
+        name: 'mobile_with_ip',
+        headers: buildHeaders({ profile: 'mobile', includeRange: false, includeClientIp: true }),
+      },
+      // Tentativa 4: VLC sem IP (fallback clássico)
+      {
+        name: 'vlc_classic',
+        headers: buildHeaders({ profile: 'vlc', includeRange: false, includeClientIp: false }),
       },
     ];
 
-    // Apenas adicionar tentativa com Range se NÃO for .ts
-    if (!looksLikeTs) {
+    // Adicionar tentativas com Range para MP4/vídeos (não para .ts)
+    if (!looksLikeTs && looksLikeMp4) {
       attempts.push({
-        name: 'vlc_with_range',
-        headers: buildHeaders({ userAgent: 'VLC/3.0.20 LibVLC/3.0.20', includeRange: true, forceRange: true }),
+        name: 'chrome_with_range',
+        headers: buildHeaders({ profile: 'chrome', includeRange: true, includeClientIp: true }),
       });
     }
 
