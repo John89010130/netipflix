@@ -538,14 +538,6 @@ export const VideoPlayer = ({ src, title, poster, contentId, contentType, onClos
       }
     };
 
-    initPlayer();
-
-    return () => {
-      abortController.abort();
-      cleanup();
-    };
-  }, [src, autoPlay, cleanup]);
-
   useEffect(() => {
     let timeout: NodeJS.Timeout;
     const handleMouseMove = () => {
