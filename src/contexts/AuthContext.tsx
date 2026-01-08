@@ -127,18 +127,26 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const signUp = async (email: string, password: string, name: string) => {
-    const redirectUrl = `${window.location.origin}/`;
-    
-    const { error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        emailRedirectTo: redirectUrl,
-        data: {
-          name,
-        },
+    // Criar usuário via função Edge (usa service role) já marcado como confirmado
+    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+    const anonKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+
+    const res = await fetch(`${supabaseUrl}/functions/v1/signup`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${anonKey}`,
       },
+      body: JSON.stringify({ email, password, name }),
     });
+
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({ error: 'Erro ao cadastrar' }));
+      return { error: new Error(data.error || 'Erro ao cadastrar') };
+    }
+
+    // Auto login após criação
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
     return { error };
   };
 
