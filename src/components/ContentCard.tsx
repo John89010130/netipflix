@@ -25,7 +25,7 @@ export const ContentCard = ({ item, index, showRank, onPlay, onAddToList, onMore
   };
 
   const handleImgError = () => {
-    console.warn('Erro ao carregar imagem:', item.poster_url);
+    console.log('Erro ao carregar imagem:', item.poster_url);
     setImgError(true);
   };
 

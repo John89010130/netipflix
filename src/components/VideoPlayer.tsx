@@ -402,15 +402,19 @@ export const VideoPlayer = ({ src, title, poster, contentId, contentType, onClos
 
     const initPlayer = async () => {
       // SEMPRE usar proxy em produção (evita mixed content HTTP→HTTPS)
+      // GitHub Pages, Lovable, etc = produção
       const isLocalDev = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+      const isProduction = !isLocalDev;
       const urlForDetection = src; // original para detectar tipo
-      const urlForPlayback = isLocalDev ? src : proxiedUrl; // proxy em produção
+      const urlForPlayback = isProduction ? proxiedUrl : src; // FORÇA proxy em produção
 
       console.log('🔧 Configuração:', { 
+        hostname: window.location.hostname,
         isLocalDev, 
+        isProduction,
         original: src, 
         playback: urlForPlayback,
-        usingProxy: !isLocalDev 
+        usingProxy: isProduction 
       });
 
       try {
