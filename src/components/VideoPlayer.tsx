@@ -145,17 +145,29 @@ const extractUnderlyingFromProxy = (maybeProxyUrl: string): string | null => {
 };
 
 const PROXY_PORT = (import.meta.env.VITE_PROXY_PORT || '3000').trim();
+const PROD_PROXY = (import.meta.env.VITE_STREAM_PROXY_URL || '').trim();
 
 const getProxiedUrl = (url: string): string => {
   // Sempre proxy para evitar HSTS/SSL/CORS em HTTP/HTTPS externos
   const cleanUrl = url.replace(/^(https?:\/\/)+(https?:\/\/)/, '$1');
 
-  const prefixes = [`http://localhost:${PROXY_PORT}/`, `https://localhost:${PROXY_PORT}/`];
-  if (prefixes.some((p) => cleanUrl.startsWith(p))) {
+  // Evita re-proxy se já estiver proxied
+  if (cleanUrl.startsWith('http://localhost:') || cleanUrl.startsWith('https://localhost:')) {
     return cleanUrl;
   }
 
-  return `http://localhost:${PROXY_PORT}/${cleanUrl}`;
+  const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+
+  if (isLocalhost) {
+    return `http://localhost:${PROXY_PORT}/${cleanUrl}`;
+  }
+
+  if (PROD_PROXY) {
+    const base = PROD_PROXY.endsWith('/') ? PROD_PROXY.slice(0, -1) : PROD_PROXY;
+    return `${base}?url=${encodeURIComponent(cleanUrl)}`;
+  }
+
+  return cleanUrl;
 };
 
 const getUnderlyingUrl = (url: string): string => {
