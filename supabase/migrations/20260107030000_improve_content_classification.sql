@@ -1,7 +1,9 @@
 -- Melhoria no sistema de classificação de conteúdo
 -- Esta migration adiciona mais padrões e melhora a detecção automática
 
--- 1) Atualizar função de normalização de texto para melhor suporte
+-- Garantir que podemos alterar assinatura/nomes de parâmetros (DROP + CREATE)
+DROP FUNCTION IF EXISTS public.normalize_text(text);
+
 CREATE OR REPLACE FUNCTION public.normalize_text(p_text text)
 RETURNS text
 LANGUAGE plpgsql
