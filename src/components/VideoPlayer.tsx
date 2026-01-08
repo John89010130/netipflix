@@ -145,12 +145,15 @@ const extractUnderlyingFromProxy = (maybeProxyUrl: string): string | null => {
 };
 
 const getProxiedUrl = (url: string): string => {
-  // Em localhost: URL direta sempre
+  // Em localhost E URL HTTPS: pode usar direto
   const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-  if (isLocalhost) {
+  const isHttps = url.startsWith('https://');
+  
+  if (isLocalhost && isHttps) {
     return url;
   }
 
+  // URLs HTTP ou produção: SEMPRE usar proxy (evita mixed content)
   // Base prioritária: variável de ambiente customizada (ex.: função Supabase)
   const customProxy = import.meta.env.VITE_STREAM_PROXY_URL as string | undefined;
   if (customProxy) {
@@ -163,7 +166,8 @@ const getProxiedUrl = (url: string): string => {
     return `${SUPABASE_URL}/functions/v1/stream-proxy?url=${encodeURIComponent(url)}`;
   }
 
-  // Sem proxy disponível: retornar URL original (poderá falhar por CORS em produção)
+  // Sem proxy disponível: retornar URL original (poderá falhar por CORS/mixed content)
+  console.warn('⚠️ Nenhum proxy configurado - URL HTTP pode falhar em produção');
   return url;
 };
 
@@ -397,8 +401,17 @@ export const VideoPlayer = ({ src, title, poster, contentId, contentType, onClos
     console.log('🎬 Iniciando player para:', src);
 
     const initPlayer = async () => {
-      const urlForDetection = src; // use original for type sniffing
-      const urlForPlayback = isLocalhost ? src : proxiedUrl; // avoid mixed content in production
+      // SEMPRE usar proxy em produção (evita mixed content HTTP→HTTPS)
+      const isLocalDev = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+      const urlForDetection = src; // original para detectar tipo
+      const urlForPlayback = isLocalDev ? src : proxiedUrl; // proxy em produção
+
+      console.log('🔧 Configuração:', { 
+        isLocalDev, 
+        original: src, 
+        playback: urlForPlayback,
+        usingProxy: !isLocalDev 
+      });
 
       try {
         // 1. Detectar tipo pela URL
