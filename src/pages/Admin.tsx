@@ -79,7 +79,19 @@ interface TestJob {
   created_at: string;
 }
 
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
+const SUPABASE_URL = (import.meta.env.VITE_SUPABASE_URL || '').replace(/^http:\/\//i, 'https://');
+
+const getProxyErrorMessage = async (response: Response): Promise<string> => {
+  const contentType = response.headers.get('content-type') || '';
+
+  if (contentType.includes('application/json')) {
+    const data = (await response.json().catch(() => null)) as any;
+    if (data?.hint) return `${data.hint} (${response.status})`;
+    if (data?.error) return `${data.error} (${response.status})`;
+  }
+
+  return `Erro ao buscar M3U: ${response.status}`;
+};
 
 const Admin = () => {
   const { isAdmin, loading } = useAuth();
@@ -554,7 +566,7 @@ const Admin = () => {
       const response = await fetch(`${SUPABASE_URL}/functions/v1/stream-proxy?url=${encodeURIComponent(rawUrl)}`);
       
       if (!response.ok) {
-        throw new Error(`Erro ao buscar M3U: ${response.status}`);
+        throw new Error(await getProxyErrorMessage(response));
       }
       
       const content = await response.text();
@@ -620,7 +632,7 @@ const Admin = () => {
         const response = await fetch(`${SUPABASE_URL}/functions/v1/stream-proxy?url=${encodeURIComponent(importedUrl)}`);
         
         if (!response.ok) {
-          throw new Error(`Erro ao buscar M3U: ${response.status}`);
+          throw new Error(await getProxyErrorMessage(response));
         }
         
         content = await response.text();
@@ -718,7 +730,8 @@ const Admin = () => {
       fetchChannelCounts();
     } catch (error) {
       console.error('Import error:', error);
-      toast.error('Erro ao importar M3U. Tente colar o conteúdo diretamente.');
+      const msg = error instanceof Error ? error.message : 'Erro ao importar M3U.';
+      toast.error(msg);
     } finally {
       setTimeout(() => {
         setImporting(false);
@@ -747,7 +760,8 @@ const Admin = () => {
       }
     } catch (error) {
       console.error('Reimport error:', error);
-      toast.error('Erro ao reimportar. Verifique se a URL ainda está válida.');
+      const msg = error instanceof Error ? error.message : 'Erro ao reimportar.';
+      toast.error(msg);
     } finally {
       setImporting(false);
     }
@@ -967,7 +981,7 @@ const Admin = () => {
       const response = await fetch(`${SUPABASE_URL}/functions/v1/stream-proxy?url=${encodeURIComponent(rawUrl)}`);
       
       if (!response.ok) {
-        throw new Error(`Erro ao buscar M3U: ${response.status}`);
+        throw new Error(await getProxyErrorMessage(response));
       }
       
       const content = await response.text();
@@ -1097,7 +1111,7 @@ const Admin = () => {
       const response = await fetch(`${SUPABASE_URL}/functions/v1/stream-proxy?url=${encodeURIComponent(rawUrl)}`);
       
       if (!response.ok) {
-        throw new Error(`Erro ao buscar M3U: ${response.status}`);
+        throw new Error(await getProxyErrorMessage(response));
       }
       
       const content = await response.text();
