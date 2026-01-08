@@ -385,11 +385,14 @@ export const VideoPlayer = ({ src, title, poster, contentId, contentType, onClos
     console.log('🎬 Iniciando player para:', src);
 
     const initPlayer = async () => {
+      const urlForDetection = src; // use original for type sniffing
+      const urlForPlayback = isLocalhost ? src : proxiedUrl; // avoid mixed content in production
+
       try {
         // 1. Detectar tipo pela URL
-        const isM3u8 = /\.m3u8(\?|$)/i.test(src);
-        const isTsFile = /\.ts(\?|$)/i.test(src);
-        const isMp4 = /\.(mp4|mkv|avi|webm|ogg|mov)(\?|$)/i.test(src);
+        const isM3u8 = /\.m3u8(\?|$)/i.test(urlForDetection);
+        const isTsFile = /\.ts(\?|$)/i.test(urlForDetection);
+        const isMp4 = /\.(mp4|mkv|avi|webm|ogg|mov)(\?|$)/i.test(urlForDetection);
 
         console.log('Tipo detectado:', { isM3u8, isTsFile, isMp4 });
 
@@ -397,7 +400,7 @@ export const VideoPlayer = ({ src, title, poster, contentId, contentType, onClos
         if (isTsFile) {
           console.log('📺 Arquivo .TS detectado - usando mpegts.js');
           setStreamInfo({ type: 'mpegts' });
-          await initMpegts(src, video, 'mpegts');
+          await initMpegts(urlForPlayback, video, 'mpegts');
           return;
         }
 
@@ -405,7 +408,7 @@ export const VideoPlayer = ({ src, title, poster, contentId, contentType, onClos
         if (isM3u8) {
           console.log('📡 M3U8 detectado - usando HLS.js');
           setStreamInfo({ type: 'hls' });
-          await initHls(src, video);
+          await initHls(urlForPlayback, video);
           return;
         }
 
@@ -413,7 +416,7 @@ export const VideoPlayer = ({ src, title, poster, contentId, contentType, onClos
         if (isMp4) {
           console.log('🎥 MP4 detectado - usando <video> nativo');
           setStreamInfo({ type: 'mp4' });
-          video.src = src;
+          video.src = urlForPlayback;
           setIsLoading(false);
           if (autoPlay) video.play().catch(() => setIsPlaying(false));
           return;
@@ -422,7 +425,7 @@ export const VideoPlayer = ({ src, title, poster, contentId, contentType, onClos
         // 5. Tipo desconhecido - tentar HLS como fallback
         console.log('❓ Tipo desconhecido - tentando HLS');
         setStreamInfo({ type: 'hls' });
-        await initHls(src, video);
+        await initHls(urlForPlayback, video);
         return;
 
       } catch (err) {
