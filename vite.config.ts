@@ -25,17 +25,17 @@ export default defineConfig(({ mode }) => ({
         background_color: "#0F0F0F",
         display: "standalone",
         orientation: "any",
-        start_url: "/",
-        scope: "/",
+        start_url: mode === 'production' ? '/netipflix/' : '/',
+        scope: mode === 'production' ? '/netipflix/' : '/',
         icons: [
           {
-            src: "/pwa-192x192.png",
+            src: mode === 'production' ? '/netipflix/pwa-192x192.png' : '/pwa-192x192.png',
             sizes: "192x192",
             type: "image/png",
             purpose: "any maskable"
           },
           {
-            src: "/pwa-512x512.png",
+            src: mode === 'production' ? '/netipflix/pwa-512x512.png' : '/pwa-512x512.png',
             sizes: "512x512",
             type: "image/png",
             purpose: "any maskable"
@@ -44,7 +44,7 @@ export default defineConfig(({ mode }) => ({
         categories: ["entertainment", "video"],
         screenshots: [
           {
-            src: "/screenshot-wide.png",
+            src: mode === 'production' ? '/netipflix/screenshot-wide.png' : '/screenshot-wide.png',
             sizes: "1280x720",
             type: "image/png",
             form_factor: "wide"
