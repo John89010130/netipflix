@@ -434,17 +434,14 @@ export const VideoPlayer = ({ src, title, poster, contentId, contentType, onClos
     };
 
     initPlayer();
-        await initHls(streamUrl, video);
-        return;
-      } catch (err) {
-        if (abortController.signal.aborted) return;
-        console.error('Player init error:', err);
-        setError('Erro ao inicializar o player. Tente novamente.');
-        setIsLoading(false);
-      }
-    };
 
-    const initHls = async (url: string, videoEl: HTMLVideoElement) => {
+    return () => {
+      abortController.abort();
+      cleanup();
+    };
+  }, [src, autoPlay]);
+
+  const initHls = async (url: string, videoEl: HTMLVideoElement) => {
       if (Hls.isSupported()) {
         const hls = new Hls({
           enableWorker: true,
