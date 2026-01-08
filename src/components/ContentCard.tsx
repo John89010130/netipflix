@@ -15,12 +15,18 @@ interface ContentCardProps {
 export const ContentCard = ({ item, index, showRank, onPlay, onAddToList, onMoreInfo }: ContentCardProps) => {
   const [isHovered, setIsHovered] = useState(false);
   const [isFocused, setIsFocused] = useState(false);
+  const [imgError, setImgError] = useState(false);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault();
       onPlay?.(item);
     }
+  };
+
+  const handleImgError = () => {
+    console.warn('Erro ao carregar imagem:', item.poster_url);
+    setImgError(true);
   };
 
   return (
@@ -56,11 +62,22 @@ export const ContentCard = ({ item, index, showRank, onPlay, onAddToList, onMore
 
       {/* Card Image */}
       <div className="relative aspect-[2/3] overflow-hidden rounded-md">
-        <img
-          src={item.poster_url}
-          alt={item.title}
-          className="h-full w-full object-cover transition-transform duration-300"
-        />
+        {!imgError ? (
+          <img
+            src={item.poster_url}
+            alt={item.title}
+            className="h-full w-full object-cover transition-transform duration-300"
+            onError={handleImgError}
+            crossOrigin="anonymous"
+          />
+        ) : (
+          <div className="h-full w-full bg-muted flex items-center justify-center">
+            <div className="text-center p-4">
+              <Play className="h-12 w-12 mx-auto mb-2 text-muted-foreground" />
+              <p className="text-sm font-medium">{item.title}</p>
+            </div>
+          </div>
+        )}
         
         {/* Gradient Overlay */}
         <div className="absolute inset-0 bg-gradient-to-t from-background/90 via-transparent to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
