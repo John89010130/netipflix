@@ -147,21 +147,17 @@ const extractUnderlyingFromProxy = (maybeProxyUrl: string): string | null => {
 const getProxiedUrl = (url: string): string => {
   if (!/^https?:\/\//i.test(url)) return url;
 
-  // 🏠 Em localhost: usar proxy local na porta 3000
   const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+  
   if (isLocalhost) {
-    console.log('🏠 Localhost - usando proxy local');
+    // Localhost: usar proxy local se disponível, senão direto
+    console.log('🏠 Localhost - tentando proxy local');
     return `http://localhost:3000?url=${encodeURIComponent(url)}`;
   }
 
-  // 🌐 Em produção: usar proxy Supabase
-  console.log('🌐 Produção - usando proxy Supabase');
-  const underlying = extractUnderlyingFromProxy(url);
-  if (underlying) {
-    return `${SUPABASE_URL}/functions/v1/stream-proxy?url=${encodeURIComponent(underlying)}`;
-  }
-
-  return `${SUPABASE_URL}/functions/v1/stream-proxy?url=${encodeURIComponent(url)}`;
+  // Produção: usar CORS proxy público (alternativa gratuita e confiável)
+  console.log('🌐 Produção - usando CORS proxy');
+  return `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
 };
 
 // Extract underlying URL from proxied URL
