@@ -4,7 +4,7 @@ import { Channel } from '@/types';
 import { cn } from '@/lib/utils';
 import { cleanDisplayName } from '@/hooks/useChannelGroups';
 
-const PROD_PROXY = (import.meta.env.VITE_STREAM_PROXY_URL || 'https://stream-proxy.john89010130.workers.dev/stream').trim();
+const PROD_PROXY = (import.meta.env.VITE_STREAM_PROXY_URL || 'https://stream-proxy.john89010130.workers.dev').trim();
 
 const proxiedImage = (url?: string) => {
   if (!url) return '';

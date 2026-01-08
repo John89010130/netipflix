@@ -145,7 +145,7 @@ const extractUnderlyingFromProxy = (maybeProxyUrl: string): string | null => {
 };
 
 const PROXY_PORT = (import.meta.env.VITE_PROXY_PORT || '3000').trim();
-const PROD_PROXY = (import.meta.env.VITE_STREAM_PROXY_URL || 'https://stream-proxy.john89010130.workers.dev/stream').trim();
+const PROD_PROXY = (import.meta.env.VITE_STREAM_PROXY_URL || 'https://stream-proxy.john89010130.workers.dev').trim();
 
 const getProxiedUrl = (url: string): string => {
   // Sempre proxy para evitar HSTS/SSL/CORS em HTTP/HTTPS externos
