@@ -145,24 +145,18 @@ const extractUnderlyingFromProxy = (maybeProxyUrl: string): string | null => {
 };
 
 const getProxiedUrl = (url: string): string => {
-  if (!/^https?:\/\//i.test(url)) return url;
-
+  // Em localhost: URL direta sempre
   const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-  
   if (isLocalhost) {
-    // Localhost: usar proxy local se disponível, senão direto
-    console.log('🏠 Localhost - tentando proxy local');
-    return `http://localhost:3000?url=${encodeURIComponent(url)}`;
+    return url;
   }
 
-  // Produção: usar CORS proxy público (alternativa gratuita e confiável)
-  console.log('🌐 Produção - usando CORS proxy');
+  // Em produção: usar proxy AllOrigins
   return `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
 };
 
-// Extract underlying URL from proxied URL
-const getUnderlyingUrl = (maybeProxied: string): string => {
-  return extractUnderlyingFromProxy(maybeProxied) ?? maybeProxied;
+const getUnderlyingUrl = (url: string): string => {
+  return url;
 };
 
 interface NextEpisode {
@@ -388,89 +382,58 @@ export const VideoPlayer = ({ src, title, poster, contentId, contentType, onClos
     setStreamInfo(null);
     cleanup();
 
-    const streamUrl = getProxiedUrl(src);
-    const underlyingUrl = getUnderlyingUrl(streamUrl);
-    
-    // Quick check for obvious file types
-    const looksLikeHls = /\.m3u8(\?|$)/i.test(underlyingUrl);
-    const looksLikeDirectFile = /\.(mp4|webm|ogg|mov)(\?|$)/i.test(underlyingUrl);
-    const looksLikeTsStream = /\.ts(\?|$)/i.test(underlyingUrl);
-    const looksLikeMpegTs = looksLikeTsStream || /\/live\//i.test(underlyingUrl) || underlyingUrl.includes(':80/');
+    console.log('🎬 Iniciando player para:', src);
 
     const initPlayer = async () => {
       try {
-        // MP4/WebM/etc - usar proxy que repassa o IP do usuário
-        if (looksLikeDirectFile) {
-          console.log('Direct MP4/WebM file detected, using proxy with user IP forwarding');
-          setStreamInfo({ type: 'mp4' });
-          
-          // Usar APENAS o proxy (que agora repassa o IP do usuário)
-          // Isso evita o erro de Mixed Content (HTTP dentro de HTTPS)
-          console.log(`Carregando MP4 via proxy: ${streamUrl.substring(0, 80)}...`);
-          video.src = streamUrl;
-          video.load();
-          
-          video.oncanplay = () => {
-            console.log('✅ MP4 carregado com sucesso via proxy');
-            setIsLoading(false);
-            if (autoPlay) video.play().catch(() => setIsPlaying(false));
-          };
-          
-          video.onerror = () => {
-            console.error('❌ Falha ao carregar MP4 via proxy');
-            setError('Não foi possível reproduzir o vídeo. O servidor pode estar bloqueando a conexão.');
-            setIsLoading(false);
-          };
-          
-          return;
-        }
+        // 1. Detectar tipo pela URL
+        const isM3u8 = /\.m3u8(\?|$)/i.test(src);
+        const isTsFile = /\.ts(\?|$)/i.test(src);
+        const isMp4 = /\.(mp4|mkv|avi|webm|ogg|mov)(\?|$)/i.test(src);
 
-        // If it obviously looks like HLS
-        if (looksLikeHls) {
-          console.log('HLS URL detected by extension');
-          setStreamInfo({ type: 'hls' });
-          await initHls(streamUrl, video);
-          return;
-        }
+        console.log('Tipo detectado:', { isM3u8, isTsFile, isMp4 });
 
-        // Para streams MPEG-TS diretos (.ts ou live streams)
-        if (looksLikeMpegTs) {
-          console.log('MPEG-TS detectado');
+        // 2. Arquivo .TS = MPEG-TS stream (usar mpegts.js)
+        if (isTsFile) {
+          console.log('📺 Arquivo .TS detectado - usando mpegts.js');
           setStreamInfo({ type: 'mpegts' });
-
-          // Em localhost: URL direta funciona
-          // Em produção: tentar proxy primeiro, depois URL direta
-          const urlsToTry = isLocalhost ? [src] : [streamUrl, src];
-          
-          for (const urlToTry of urlsToTry) {
-            console.log(`Tentando mpegts.js com: ${urlToTry}`);
-            try {
-              await initMpegts(urlToTry, video, 'mpegts');
-              return;
-            } catch (error: any) {
-              console.error(`mpegts.js falhou com ${urlToTry}:`, error);
-            }
-          }
-
-          // Fallback final: tentar <video> nativo com URL original
-          console.log('Todas tentativas mpegts falharam, usando <video> nativo');
-          setStreamInfo({ type: 'mp4' });
-          try {
-            video.src = src;
-            await video.play();
-            setIsPlaying(true);
-            setIsLoading(false);
-            return;
-          } catch (nativeError) {
-            setError('Não foi possível reproduzir este stream');
-            setIsLoading(false);
-            return;
-          }
+          await initMpegts(src, video, 'mpegts');
+          return;
         }
 
-        // Para outros endpoints, tentar HLS primeiro
-        console.log('Unknown endpoint, trying HLS first');
+        // 3. M3U8 = HLS (usar hls.js)
+        if (isM3u8) {
+          console.log('📡 M3U8 detectado - usando HLS.js');
+          setStreamInfo({ type: 'hls' });
+          await initHls(src, video);
+          return;
+        }
+
+        // 4. MP4/WebM/etc = Vídeo direto (usar tag <video> nativa)
+        if (isMp4) {
+          console.log('🎥 MP4 detectado - usando <video> nativo');
+          setStreamInfo({ type: 'mp4' });
+          video.src = src;
+          setIsLoading(false);
+          if (autoPlay) video.play().catch(() => setIsPlaying(false));
+          return;
+        }
+
+        // 5. Tipo desconhecido - tentar HLS como fallback
+        console.log('❓ Tipo desconhecido - tentando HLS');
         setStreamInfo({ type: 'hls' });
+        await initHls(src, video);
+        return;
+
+      } catch (err) {
+        if (abortController.signal.aborted) return;
+        console.error('Erro ao inicializar player:', err);
+        setError('Erro ao inicializar o player. Tente novamente.');
+        setIsLoading(false);
+      }
+    };
+
+    initPlayer();
         await initHls(streamUrl, video);
         return;
       } catch (err) {
@@ -552,43 +515,30 @@ export const VideoPlayer = ({ src, title, poster, contentId, contentType, onClos
         throw new Error('Browser não suporta mpegts.js');
       }
 
-      console.log('mpegts.js: iniciando com URL:', url);
+      console.log('⚡ mpegts.js: URL:', url);
       
       const player = mpegts.default.createPlayer({
         type: 'mpegts',
         isLive: true,
         url: url,
-      }, {
-        enableWorker: false,
-        enableStashBuffer: false,
-        autoCleanupSourceBuffer: true,
       });
 
       mpegtsPlayerRef.current = player;
-      
-      // Adicionar listeners de erro ANTES de attach
-      player.on(mpegts.default.Events.ERROR, (errorType: string, errorDetail: string, errorInfo: any) => {
-        console.error('❌ mpegts.js ERROR:', { errorType, errorDetail, errorInfo });
-        throw new Error(`mpegts error: ${errorDetail}`);
-      });
-
-      player.on(mpegts.default.Events.MEDIA_INFO, (info: any) => {
-        console.log('✅ mpegts.js MEDIA_INFO:', info);
-        setIsLoading(false);
-      });
-
       player.attachMediaElement(videoEl);
       player.load();
 
-      console.log('mpegts.js: aguardando carregamento...');
-      // Aguardar um pouco e tentar reproduzir
+      // Aguardar carregar
       await new Promise(resolve => setTimeout(resolve, 2000));
 
-      console.log('mpegts.js: tentando play...');
-      await videoEl.play();
-      setIsLoading(false);
-      setIsPlaying(true);
-      console.log('✅ mpegts.js: reprodução iniciada com sucesso!');
+      try {
+        await videoEl.play();
+        setIsPlaying(true);
+        setIsLoading(false);
+        console.log('✅ mpegts.js: Reproduzindo');
+      } catch (e) {
+        console.error('❌ mpegts.js: Erro ao play', e);
+        throw e;
+      }
     };
 
     initPlayer();
