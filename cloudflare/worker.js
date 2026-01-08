@@ -26,11 +26,26 @@ export default {
     const decodedUrl = decodeURIComponent(streamUrl);
     const looksLikeTs = /\.ts(\?|$)/i.test(decodedUrl);
 
+    // Capturar IP do cliente enviado pelo Cloudflare
+    const clientIp =
+      request.headers.get('cf-connecting-ip') ||
+      request.headers.get('x-real-ip') ||
+      request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
+      '';
+
     const headers = {
       'User-Agent': 'VLC/3.0.20 LibVLC/3.0.20',
       'Accept': '*/*',
       'Connection': 'keep-alive',
     };
+
+    // Repassar IP real para provedores que validam origem
+    if (clientIp) {
+      headers['X-Forwarded-For'] = clientIp;
+      headers['X-Real-IP'] = clientIp;
+      headers['CF-Connecting-IP'] = clientIp;
+      headers['True-Client-IP'] = clientIp;
+    }
 
     // Nunca usar Range com .ts
     const rangeHeader = request.headers.get('range');
