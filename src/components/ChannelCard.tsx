@@ -4,6 +4,18 @@ import { Channel } from '@/types';
 import { cn } from '@/lib/utils';
 import { cleanDisplayName } from '@/hooks/useChannelGroups';
 
+const PROD_PROXY = (import.meta.env.VITE_STREAM_PROXY_URL || 'https://stream-proxy.john89010130.workers.dev/stream').trim();
+
+const proxiedImage = (url?: string) => {
+  if (!url) return '';
+  if (url.startsWith('https://stream-proxy.') || url.includes('/stream?url=')) return url;
+  if (/^https?:\/\//i.test(url)) {
+    const base = PROD_PROXY.endsWith('/') ? PROD_PROXY.slice(0, -1) : PROD_PROXY;
+    return `${base}?url=${encodeURIComponent(url)}`;
+  }
+  return url;
+};
+
 interface ChannelCardProps {
   channel: Channel;
   onPlay?: (channel: Channel) => void;
@@ -41,7 +53,7 @@ export const ChannelCard = ({ channel, onPlay }: ChannelCardProps) => {
         {/* Logo Container */}
         <div className="absolute inset-0 flex items-center justify-center p-4">
           <img
-            src={channel.logo_url}
+            src={proxiedImage(channel.logo_url)}
             alt={channel.name}
             className="max-h-full max-w-full object-contain filter brightness-0 invert"
             onError={(e) => {

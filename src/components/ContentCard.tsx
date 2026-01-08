@@ -3,6 +3,20 @@ import { Play, Plus, ThumbsUp, ChevronDown, Tv } from 'lucide-react';
 import { ContentItem } from '@/types';
 import { cn } from '@/lib/utils';
 
+const PROD_PROXY = (import.meta.env.VITE_STREAM_PROXY_URL || 'https://stream-proxy.john89010130.workers.dev/stream').trim();
+
+const proxiedImage = (url?: string) => {
+  if (!url) return '';
+  // Evita re-proxy
+  if (url.startsWith('https://stream-proxy.') || url.includes('/stream?url=')) return url;
+  // Apenas HTTP/HTTPS externos
+  if (/^https?:\/\//i.test(url)) {
+    const base = PROD_PROXY.endsWith('/') ? PROD_PROXY.slice(0, -1) : PROD_PROXY;
+    return `${base}?url=${encodeURIComponent(url)}`;
+  }
+  return url;
+};
+
 interface ContentCardProps {
   item: ContentItem;
   index?: number;
@@ -64,7 +78,7 @@ export const ContentCard = ({ item, index, showRank, onPlay, onAddToList, onMore
       <div className="relative aspect-[2/3] overflow-hidden rounded-md">
         {!imgError ? (
           <img
-            src={item.poster_url}
+            src={proxiedImage(item.poster_url)}
             alt={item.title}
             className="h-full w-full object-cover transition-transform duration-300"
             onError={handleImgError}
