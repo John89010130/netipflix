@@ -147,7 +147,22 @@ const extractUnderlyingFromProxy = (maybeProxyUrl: string): string | null => {
 const PROXY_PORT = (import.meta.env.VITE_PROXY_PORT || '3000').trim();
 const PROD_PROXY = (import.meta.env.VITE_STREAM_PROXY_URL || 'https://stream-proxy.john89010130.workers.dev').trim();
 
+// Detectar se está rodando no Capacitor (app nativo)
+const isCapacitorApp = (): boolean => {
+  return !!(window as any).Capacitor?.isNativePlatform?.() || 
+         window.location.protocol === 'http:' && window.location.hostname === 'localhost' && window.location.port === '' ||
+         window.location.href.includes('capacitor://') ||
+         window.location.href.includes('http://localhost/');
+};
+
 const getProxiedUrl = (url: string): string => {
+  // Se estiver no app Capacitor, usar URL direta (sem proxy)
+  // O WebView Android permite HTTP cleartext traffic
+  if (isCapacitorApp()) {
+    console.log('📱 Capacitor detectado - usando URL direta:', url);
+    return url;
+  }
+
   // Sempre proxy para evitar HSTS/SSL/CORS em HTTP/HTTPS externos
   const cleanUrl = url.replace(/^(https?:\/\/)+(https?:\/\/)/, '$1');
 
