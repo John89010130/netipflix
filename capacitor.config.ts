@@ -5,13 +5,12 @@ const config: CapacitorConfig = {
   appName: 'NETIPFLIX',
   webDir: 'dist',
   server: {
-    // Carregar do servidor remoto - mudanças no site refletem automaticamente!
-    url: 'https://john89010130.github.io/netipflix/',
+    // Carregar localmente via HTTP (permite streams HTTP diretos)
+    androidScheme: 'http',
     cleartext: true
   },
   android: {
     allowMixedContent: true,
-    // Configurações de fullscreen
     backgroundColor: '#000000'
   },
   plugins: {
