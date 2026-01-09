@@ -592,6 +592,44 @@ export const VideoPlayer = ({ src, title, poster, contentId, contentType, onClos
       }
     };
 
+  // Listener para mudanças de fullscreen (back button, gestos, etc)
+  useEffect(() => {
+    const handleFullscreenChange = async () => {
+      const isCurrentlyFullscreen = !!(
+        document.fullscreenElement ||
+        (document as any).webkitFullscreenElement ||
+        (document as any).msFullscreenElement
+      );
+      
+      setIsFullscreen(isCurrentlyFullscreen);
+      
+      // Atualizar StatusBar no Capacitor
+      const isCapacitor = !!(window as any).Capacitor;
+      if (isCapacitor) {
+        try {
+          const { StatusBar } = await import('@capacitor/status-bar');
+          if (isCurrentlyFullscreen) {
+            await StatusBar.hide();
+          } else {
+            await StatusBar.show();
+          }
+        } catch (e) {
+          // Plugin não disponível
+        }
+      }
+    };
+
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
+    document.addEventListener('msfullscreenchange', handleFullscreenChange);
+
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+      document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
+      document.removeEventListener('msfullscreenchange', handleFullscreenChange);
+    };
+  }, []);
+
   useEffect(() => {
     let timeout: NodeJS.Timeout;
     const handleMouseMove = () => {
@@ -630,20 +668,81 @@ export const VideoPlayer = ({ src, title, poster, contentId, contentType, onClos
     setIsMuted(!isMuted);
   };
 
-  const toggleFullscreen = () => {
+  const toggleFullscreen = async () => {
     const container = containerRef.current;
+    const video = videoRef.current;
     if (!container) return;
 
+    // Detectar se está no Capacitor
+    const isCapacitor = !!(window as any).Capacitor;
+
     if (!isFullscreen) {
-      if (container.requestFullscreen) {
-        container.requestFullscreen();
+      try {
+        // Tentar fullscreen no container primeiro
+        if (container.requestFullscreen) {
+          await container.requestFullscreen();
+        } else if ((container as any).webkitRequestFullscreen) {
+          await (container as any).webkitRequestFullscreen();
+        } else if ((container as any).msRequestFullscreen) {
+          await (container as any).msRequestFullscreen();
+        } else if (video && (video as any).webkitEnterFullscreen) {
+          // iOS Safari - fullscreen no video
+          await (video as any).webkitEnterFullscreen();
+        }
+
+        // Se estiver no Capacitor, esconder status bar
+        if (isCapacitor) {
+          try {
+            const { StatusBar } = await import('@capacitor/status-bar');
+            await StatusBar.hide();
+          } catch (e) {
+            console.log('StatusBar plugin não disponível');
+          }
+        }
+
+        // Forçar orientação paisagem se possível
+        if (screen.orientation && (screen.orientation as any).lock) {
+          try {
+            await (screen.orientation as any).lock('landscape');
+          } catch (e) {
+            console.log('Não foi possível travar orientação');
+          }
+        }
+
+        setIsFullscreen(true);
+      } catch (err) {
+        console.error('Erro ao entrar em fullscreen:', err);
       }
     } else {
-      if (document.exitFullscreen) {
-        document.exitFullscreen();
+      try {
+        if (document.exitFullscreen) {
+          await document.exitFullscreen();
+        } else if ((document as any).webkitExitFullscreen) {
+          await (document as any).webkitExitFullscreen();
+        } else if ((document as any).msExitFullscreen) {
+          await (document as any).msExitFullscreen();
+        }
+
+        // Se estiver no Capacitor, mostrar status bar
+        if (isCapacitor) {
+          try {
+            const { StatusBar } = await import('@capacitor/status-bar');
+            await StatusBar.show();
+          } catch (e) {
+            console.log('StatusBar plugin não disponível');
+          }
+        }
+
+        // Desbloquear orientação
+        if (screen.orientation && screen.orientation.unlock) {
+          screen.orientation.unlock();
+        }
+
+        setIsFullscreen(false);
+      } catch (err) {
+        console.error('Erro ao sair de fullscreen:', err);
       }
     }
-    setIsFullscreen(!isFullscreen);
   };
 
   // Picture-in-Picture
