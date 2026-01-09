@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">NETIPFLIX</string>
+    <string name="title_activity_main">NETIPFLIX</string>
+    <string name="package_name">br.net.netipflix</string>
+    <string name="custom_url_scheme">br.net.netipflix</string>
+</resources>
