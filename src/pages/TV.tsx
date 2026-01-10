@@ -90,55 +90,68 @@ const TV = () => {
 
     const from = reset ? 0 : currentLength;
 
-    // Fetch only TV content type from active lists
-    let query = supabase
-      .from('active_channels' as any)
-      .select('*')
-      .eq('content_type', 'TV')
-      .range(from, from + PAGE_SIZE - 1);
+    try {
+      // Fetch only TV content type from active lists
+      let query = supabase
+        .from('active_channels' as any)
+        .select('*')
+        .eq('content_type', 'TV');
 
-    if (selectedCategory !== 'Todos' && selectedCategory !== '🔞 Adulto') {
-      query = query.eq('category', selectedCategory);
-    }
+      // Apply search filter at database level
+      if (debouncedSearch) {
+        query = query.ilike('name', `%${debouncedSearch}%`);
+      }
 
-    if (debouncedSearch) {
-      query = query.ilike('name', `%${debouncedSearch}%`);
-    }
+      // For specific category (not "Todos" or "Adulto"), filter by exact category
+      if (selectedCategory !== 'Todos' && selectedCategory !== '🔞 Adulto') {
+        query = query.eq('category', selectedCategory);
+      }
 
-    const { data, error } = await query;
+      // Execute query without pagination first to get all matching records
+      const { data: allData, error } = await query;
 
-    if (error) {
-      console.error('Error fetching channels:', error);
-      setLoading(false);
-      setLoadingMore(false);
-      return;
-    }
-    
-    if (data) {
-      let filteredData = data as unknown as Channel[];
+      if (error) {
+        console.error('Error fetching channels:', error);
+        setLoading(false);
+        setLoadingMore(false);
+        return;
+      }
       
-      // Filter for adult/non-adult content only when "Todos" or "Adulto" is selected
-      if (selectedCategory === 'Todos') {
-        filteredData = filteredData.filter(c => !isAdultCategory(c.category));
-      } else if (selectedCategory === '🔞 Adulto') {
-        filteredData = filteredData.filter(c => isAdultCategory(c.category));
-      }
+      if (allData) {
+        let filteredData = allData as unknown as Channel[];
+        
+        // Filter for adult/non-adult content based on selected category
+        if (selectedCategory === 'Todos') {
+          // Show only non-adult channels
+          filteredData = filteredData.filter(c => !isAdultCategory(c.category));
+        } else if (selectedCategory === '🔞 Adulto') {
+          // Show only adult channels
+          filteredData = filteredData.filter(c => isAdultCategory(c.category));
+        }
 
-      // Sort: BR channels first, then alphabetically by cleaned name
-      filteredData.sort((a, b) => {
-        const aIsBR = a.name.toUpperCase().startsWith('BR:');
-        const bIsBR = b.name.toUpperCase().startsWith('BR:');
-        if (aIsBR && !bIsBR) return -1;
-        if (!aIsBR && bIsBR) return 1;
-        return cleanDisplayName(a.name).localeCompare(cleanDisplayName(b.name));
-      });
+        // Sort: BR channels first, then alphabetically by cleaned name
+        filteredData.sort((a, b) => {
+          const aIsBR = a.name.toUpperCase().startsWith('BR:');
+          const bIsBR = b.name.toUpperCase().startsWith('BR:');
+          if (aIsBR && !bIsBR) return -1;
+          if (!aIsBR && bIsBR) return 1;
+          return cleanDisplayName(a.name).localeCompare(cleanDisplayName(b.name));
+        });
 
-      if (reset) {
-        setChannels(filteredData);
-      } else {
-        setChannels(prev => [...prev, ...filteredData]);
+        // Apply pagination in memory
+        const paginatedData = filteredData.slice(from, from + PAGE_SIZE);
+
+        if (reset) {
+          setChannels(paginatedData);
+        } else {
+          setChannels(prev => [...prev, ...paginatedData]);
+        }
+        
+        // Check if there's more data to load
+        setHasMore(from + PAGE_SIZE < filteredData.length);
       }
-      setHasMore(data.length === PAGE_SIZE);
+    } catch (err) {
+      console.error('Error in fetchChannels:', err);
     }
 
     setLoading(false);

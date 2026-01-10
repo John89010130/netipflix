@@ -14,7 +14,9 @@
     "electron:build": "npm run build && electron-builder",
     "electron:build:win": "npm run build && electron-builder --win",
     "electron:build:linux": "npm run build && electron-builder --linux",
-    "electron:build:mac": "npm run build && electron-builder --mac"
+    "electron:build:mac": "npm run build && electron-builder --mac",
+    "tizen:build": "build-tizen.bat",
+    "tizen:build:unix": "chmod +x build-tizen.sh && ./build-tizen.sh"
   },
   "build": {
     "appId": "br.net.netipflix",

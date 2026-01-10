@@ -1,53 +1,111 @@
-# Welcome to your Lovable project
+# 📺 Netipflix - Plataforma IPTV Multiplataforma
 
-## Project info
+Plataforma completa de streaming IPTV com suporte para Web, Android, Desktop e Samsung TV.
 
-**URL**: https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID
+## 🎯 Plataformas Suportadas
 
-## How can I edit this code?
+- 🌐 **Web** (Progressive Web App)
+- 📱 **Android** (APK via Capacitor)
+- 💻 **Desktop** (Windows/Linux/Mac via Electron)
+- 📺 **Samsung TV** (Tizen Web App)
 
-There are several ways of editing your application.
+---
 
-**Use Lovable**
+## 🚀 Instalação Rápida
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and start prompting.
+### Web (Navegador)
+Acesse: https://seu-dominio.com
 
-Changes made via Lovable will be committed automatically to this repo.
+### Android (APK)
+1. Ative "Fontes desconhecidas" no Android
+2. Instale o APK
+3. Abra o app
 
-**Use your preferred IDE**
+### Desktop (Windows/Linux/Mac)
+1. Execute o instalador para sua plataforma
+2. Abra o Netipflix
 
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
+### 📺 Samsung TV (Tizen)
+Veja: [**INSTALACAO-TV-RAPIDA.md**](./INSTALACAO-TV-RAPIDA.md) ou [**README-TIZEN.md**](./README-TIZEN.md)
 
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
+**Resumo:**
+```bash
+npm run tizen:build        # ou execute build-tizen.bat
+# Copie Netipflix.wgt para PENDRIVE/userwidget/
+# Conecte na TV e instale
+```
 
-Follow these steps:
+---
+
+## 🛠️ Desenvolvimento
+
+### Pré-requisitos
+- Node.js 18+ ([instalar com nvm](https://github.com/nvm-sh/nvm))
+- npm ou bun
+
+### Setup
+
+### Setup
 
 ```sh
-# Step 1: Clone the repository using the project's Git URL.
+# Clone o repositório
 git clone <YOUR_GIT_URL>
-
-# Step 2: Navigate to the project directory.
 cd <YOUR_PROJECT_NAME>
 
-# Step 3: Install the necessary dependencies.
-npm i
+# Instale dependências
+npm install
 
-# Step 4: Start the development server with auto-reloading and an instant preview.
+# Inicie servidor de desenvolvimento
 npm run dev
 ```
 
-**Edit a file directly in GitHub**
+### Build para Produção
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+```sh
+# Web
+npm run build
 
-**Use GitHub Codespaces**
+# Android (APK)
+cd android
+./gradlew assembleDebug
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
+# Desktop (Electron)
+npm run electron:build:win   # Windows
+npm run electron:build:linux # Linux
+npm run electron:build:mac   # Mac
+
+# Samsung TV (Tizen)
+npm run tizen:build           # Windows
+npm run tizen:build:unix      # Linux/Mac
+```
+
+---
+
+## 📚 Documentação Adicional
+
+- [Como Usar](./COMO-USAR.md) - Guia completo de uso
+- [Samsung TV](./README-TIZEN.md) - Instalação detalhada na Samsung TV
+- [Instalação Rápida TV](./INSTALACAO-TV-RAPIDA.md) - Guia rápido Samsung TV
+- [Classificação Automática](./CLASSIFICACAO_AUTOMATICA.md)
+- [Deploy Cloudflare](./cloudflare/README.md)
+
+---
+
+## 🔧 Tecnologias
+
+- **Frontend:** React + TypeScript + Vite
+- **Styling:** TailwindCSS + Shadcn/ui
+- **Backend:** Supabase (PostgreSQL + Edge Functions)
+- **Video:** HLS.js + mpegts.js
+- **Android:** Capacitor
+- **Desktop:** Electron
+- **Samsung TV:** Tizen Web App
+
+---
+
+## 📝 Licença
+
+Projeto privado - Todos os direitos reservados
 - Edit files directly within the Codespace and commit and push your changes once you're done.
 
 ## What technologies are used for this project?

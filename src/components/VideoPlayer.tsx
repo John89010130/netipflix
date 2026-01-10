@@ -164,32 +164,27 @@ const isCapacitorApp = (): boolean => {
 };
 
 const getProxiedUrl = (url: string): string => {
-  // Se estiver no app Capacitor, usar URL HTTP direta (sem proxy)
-  // O WebView Android com cleartext=true permite HTTP direto
-  if (isCapacitorApp()) {
-    console.log('📱 Capacitor App - usando URL HTTP direta:', url);
+  // Se estiver rodando em HTTP (não HTTPS), nunca usar proxy!
+  if (window.location.protocol === 'http:') {
     return url;
   }
-
-  // No navegador web: usar proxy para evitar Mixed Content
+  // Se estiver no app Capacitor, usar URL HTTP direta (sem proxy)
+  if (isCapacitorApp()) {
+    return url;
+  }
+  // No navegador web HTTPS: usar proxy para evitar Mixed Content
   const cleanUrl = url.replace(/^(https?:\/\/)+(https?:\/\/)/, '$1');
-
-  // Evita re-proxy se já estiver proxied
   if (cleanUrl.startsWith('http://localhost:') || cleanUrl.startsWith('https://localhost:')) {
     return cleanUrl;
   }
-
   const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-
   if (isLocalhost) {
     return `http://localhost:${PROXY_PORT}/${cleanUrl}`;
   }
-
   if (PROD_PROXY) {
     const base = PROD_PROXY.endsWith('/') ? PROD_PROXY.slice(0, -1) : PROD_PROXY;
     return `${base}?url=${encodeURIComponent(cleanUrl)}`;
   }
-
   return cleanUrl;
 };
 
@@ -247,6 +242,8 @@ export const VideoPlayer = ({ src, title, poster, contentId, contentType, onClos
   const [showResumePrompt, setShowResumePrompt] = useState(false);
   const [showNextEpisode, setShowNextEpisode] = useState(false);
   const [nextEpisodeCountdown, setNextEpisodeCountdown] = useState(15);
+  const [showTimeoutClose, setShowTimeoutClose] = useState(false);
+  const [focusedButton, setFocusedButton] = useState<string>('play');
   
   const { isAdmin, user } = useAuth();
 
@@ -277,6 +274,97 @@ export const VideoPlayer = ({ src, title, poster, contentId, contentType, onClos
 
     loadSavedProgress();
   }, [user?.id, contentId]);
+
+  // Timeout de 15 segundos para mostrar opção de fechar se não carregar
+  useEffect(() => {
+    if (!isLoading) {
+      setShowTimeoutClose(false);
+      return;
+    }
+
+    const timeoutId = setTimeout(() => {
+      if (isLoading && !error) {
+        setShowTimeoutClose(true);
+        toast.warning('O vídeo está demorando para carregar. Você pode fechar e tentar novamente.');
+      }
+    }, 15000);
+
+    return () => clearTimeout(timeoutId);
+  }, [isLoading, error]);
+
+  // Navegação por teclado (setas) para Android TV e controles remotos
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const video = videoRef.current;
+      if (!video) return;
+
+      // Prevenir scroll da página
+      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.key)) {
+        e.preventDefault();
+      }
+
+      switch (e.key) {
+        // Play/Pause
+        case ' ':
+        case 'Enter':
+          togglePlay();
+          break;
+        
+        // Volume
+        case 'ArrowUp':
+          const newVolumeUp = Math.min(1, volume + 0.1);
+          setVolume(newVolumeUp);
+          video.volume = newVolumeUp;
+          setIsMuted(false);
+          toast.success(`Volume: ${Math.round(newVolumeUp * 100)}%`);
+          break;
+        
+        case 'ArrowDown':
+          const newVolumeDown = Math.max(0, volume - 0.1);
+          setVolume(newVolumeDown);
+          video.volume = newVolumeDown;
+          if (newVolumeDown === 0) setIsMuted(true);
+          toast.success(`Volume: ${Math.round(newVolumeDown * 100)}%`);
+          break;
+        
+        // Seek
+        case 'ArrowLeft':
+          video.currentTime = Math.max(0, video.currentTime - 10);
+          toast.info('⏪ -10s');
+          break;
+        
+        case 'ArrowRight':
+          video.currentTime = Math.min(video.duration, video.currentTime + 10);
+          toast.info('⏩ +10s');
+          break;
+        
+        // Mute
+        case 'm':
+        case 'M':
+          toggleMute();
+          break;
+        
+        // Fullscreen
+        case 'f':
+        case 'F':
+          toggleFullscreen();
+          break;
+        
+        // Close player (Escape ou Back button do Android)
+        case 'Escape':
+        case 'Backspace':
+          if (onClose) {
+            e.preventDefault();
+            onClose();
+          }
+          break;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [volume, isPlaying, onClose]);
+
 
   // Resume from saved position
   const resumeFromSaved = () => {
@@ -793,32 +881,99 @@ export const VideoPlayer = ({ src, title, poster, contentId, contentType, onClos
     return video && (video as any).webkitShowPlaybackTargetPicker !== undefined;
   };
 
-  // Request Remote Playback (Chromecast/Cast)
+  // Request Remote Playback (Chromecast/Cast) com múltiplas opções
   const startCast = async () => {
     const video = videoRef.current;
     if (!video) return;
 
     try {
+      // Método 1: Remote Playback API (Chromecast nativo)
       if ((video as any).remote && (video as any).remote.watchAvailability) {
         const remote = (video as any).remote;
-        await remote.prompt();
-        toast.success('Conectando ao dispositivo...');
-        setIsCasting(true);
-      } else {
-        // Fallback: copy stream URL for external player
-        await navigator.clipboard.writeText(src);
-        toast.success('Link copiado! Cole em um player externo ou Smart TV.');
+        const available = await remote.watchAvailability((availability: boolean) => {
+          console.log('Cast available:', availability);
+        });
+        
+        if (available) {
+          await remote.prompt();
+          toast.success('Conectando ao dispositivo...');
+          setIsCasting(true);
+          return;
+        }
       }
+
+      // Método 2: Presentation API (mais universal)
+      if ('PresentationRequest' in window) {
+        const presentationUrl = window.location.origin + window.location.pathname + '?cast=true&url=' + encodeURIComponent(src);
+        const presentation = new (window as any).PresentationRequest([presentationUrl]);
+        
+        try {
+          const connection = await presentation.start();
+          toast.success('Conectado via Presentation API!');
+          setIsCasting(true);
+          return;
+        } catch (e) {
+          console.log('Presentation API failed:', e);
+        }
+      }
+
+      // Método 3: Web Share API com vídeo
+      if (navigator.share && navigator.canShare) {
+        try {
+          await navigator.share({
+            title: title || 'Assistir',
+            text: 'Assista este vídeo',
+            url: src
+          });
+          toast.success('Compartilhado com sucesso!');
+          return;
+        } catch (e) {
+          console.log('Share failed:', e);
+        }
+      }
+
+      // Fallback: Copiar link e mostrar instruções
+      await navigator.clipboard.writeText(src);
+      toast.success('Link copiado! Cole no seu player favorito (VLC, MX Player, etc)');
+      
     } catch (err) {
       console.error('Cast error:', err);
-      // If remote playback not supported, copy URL as fallback
+      // Último fallback: apenas copiar URL
       try {
         await navigator.clipboard.writeText(src);
-        toast.info('Link copiado para usar em outro dispositivo');
+        toast.info('Link copiado! Use em outro dispositivo ou app de streaming');
       } catch {
-        toast.error('Espelhamento não disponível');
+        toast.error('Não foi possível espelhar. Tente um player externo.');
       }
     }
+  };
+
+  // Abrir em app externo (Android)
+  const openInExternalApp = (app: 'vlc' | 'mxplayer' | 'webvideo' | 'generic') => {
+    const intentUrls = {
+      vlc: `vlc://${src}`,
+      mxplayer: `intent:${src}#Intent;package=com.mxtech.videoplayer.ad;end`,
+      webvideo: `intent:${src}#Intent;package=com.webvideocaster.tv;end`,
+      generic: src
+    };
+
+    const url = intentUrls[app];
+    
+    // Tentar abrir
+    const link = document.createElement('a');
+    link.href = url;
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+
+    // Fallback: copiar URL
+    setTimeout(() => {
+      navigator.clipboard.writeText(src).then(() => {
+        toast.info(`Se o app não abriu, o link foi copiado`);
+      });
+    }, 1000);
   };
 
   const handleTimeUpdate = () => {
@@ -928,7 +1083,32 @@ export const VideoPlayer = ({ src, title, poster, contentId, contentType, onClos
                 {title}
               </h2>
             )}
+            
+            {/* Botão de fechar após timeout de 15s */}
+            {showTimeoutClose && (
+              <div className="mt-8 animate-fade-in">
+                <button
+                  onClick={onClose}
+                  className="px-6 py-3 bg-destructive hover:bg-destructive/90 text-destructive-foreground rounded-lg transition-colors font-medium flex items-center gap-2"
+                >
+                  <X className="h-5 w-5" />
+                  Fechar Player
+                </button>
+                <p className="mt-2 text-sm text-muted-foreground text-center">
+                  O vídeo não iniciou. Tente novamente ou escolha outro conteúdo.
+                </p>
+              </div>
+            )}
           </div>
+          
+          {/* Botão X sempre visível no canto (mesmo durante carregamento) */}
+          <button 
+            onClick={onClose} 
+            className="absolute top-4 left-4 z-20 p-2 bg-background/80 hover:bg-background backdrop-blur-sm rounded-full transition-colors shadow-lg"
+            title="Fechar (ESC)"
+          >
+            <X className="h-6 w-6" />
+          </button>
         </div>
       )}
 
@@ -1069,6 +1249,15 @@ export const VideoPlayer = ({ src, title, poster, contentId, contentType, onClos
         playsInline
       />
 
+      {/* Botão de Fechar SEMPRE VISÍVEL (mesmo com controles ocultos) */}
+      <button 
+        onClick={onClose} 
+        className="absolute top-4 left-4 z-50 p-2 bg-background/80 hover:bg-background backdrop-blur-sm rounded-full transition-all hover:scale-110 shadow-lg focus:outline-none focus:ring-2 focus:ring-primary"
+        title="Fechar Player (ESC ou Backspace)"
+      >
+        <X className="h-6 w-6" />
+      </button>
+
       {/* Controls Overlay */}
       <div
         className={cn(
@@ -1079,7 +1268,11 @@ export const VideoPlayer = ({ src, title, poster, contentId, contentType, onClos
         {/* Top Bar */}
         <div className="absolute top-0 left-0 right-0 p-4 bg-gradient-to-b from-background/80 to-transparent">
           <div className="flex items-center justify-between">
-            <button onClick={onClose} className="p-2 hover:bg-secondary/50 rounded-full transition-colors">
+            <button 
+              onClick={onClose} 
+              className="p-2 hover:bg-secondary/50 rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-primary"
+              title="Fechar (ESC)"
+            >
               <X className="h-6 w-6" />
             </button>
             <div className="flex items-center gap-4">
@@ -1189,17 +1382,33 @@ export const VideoPlayer = ({ src, title, poster, contentId, contentType, onClos
           {/* Control Buttons */}
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
-              <button onClick={togglePlay} className="p-2 hover:bg-secondary/50 rounded-full transition-colors">
+              <button 
+                onClick={togglePlay} 
+                className="p-2 hover:bg-secondary/50 rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-primary"
+                title="Play/Pause (Espaço ou Enter)"
+              >
                 {isPlaying ? <Pause className="h-6 w-6" /> : <Play className="h-6 w-6" />}
               </button>
-              <button onClick={() => skip(-10)} className="p-2 hover:bg-secondary/50 rounded-full transition-colors">
+              <button 
+                onClick={() => skip(-10)} 
+                className="p-2 hover:bg-secondary/50 rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-primary"
+                title="Voltar 10s (Seta Esquerda)"
+              >
                 <SkipBack className="h-6 w-6" />
               </button>
-              <button onClick={() => skip(10)} className="p-2 hover:bg-secondary/50 rounded-full transition-colors">
+              <button 
+                onClick={() => skip(10)} 
+                className="p-2 hover:bg-secondary/50 rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-primary"
+                title="Avançar 10s (Seta Direita)"
+              >
                 <SkipForward className="h-6 w-6" />
               </button>
               <div className="flex items-center gap-2">
-                <button onClick={toggleMute} className="p-2 hover:bg-secondary/50 rounded-full transition-colors">
+                <button 
+                  onClick={toggleMute} 
+                  className="p-2 hover:bg-secondary/50 rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-primary"
+                  title="Mute/Unmute (M)"
+                >
                   {isMuted ? <VolumeX className="h-6 w-6" /> : <Volume2 className="h-6 w-6" />}
                 </button>
                 <input
@@ -1217,6 +1426,7 @@ export const VideoPlayer = ({ src, title, poster, contentId, contentType, onClos
                     }
                   }}
                   className="w-20 accent-primary"
+                  title="Volume (Seta Cima/Baixo)"
                 />
               </div>
               <span className="text-sm text-muted-foreground">
@@ -1230,15 +1440,19 @@ export const VideoPlayer = ({ src, title, poster, contentId, contentType, onClos
                 <DropdownMenuTrigger asChild>
                   <button 
                     className={cn(
-                      "p-2 hover:bg-secondary/50 rounded-full transition-colors",
+                      "p-2 hover:bg-secondary/50 rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-primary",
                       isCasting && "text-primary"
                     )}
-                    title="Espelhar tela"
+                    title="Espelhar/Transmitir"
                   >
                     <Cast className="h-5 w-5 md:h-6 md:w-6" />
                   </button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-48">
+                <DropdownMenuContent align="end" className="w-56">
+                  <DropdownMenuItem onClick={startCast} className="gap-2">
+                    <Cast className="h-4 w-4" />
+                    Chromecast / Smart TV
+                  </DropdownMenuItem>
                   <DropdownMenuItem onClick={togglePiP} className="gap-2">
                     <MonitorSmartphone className="h-4 w-4" />
                     {isPiP ? 'Sair do PiP' : 'Picture-in-Picture'}
@@ -1246,21 +1460,70 @@ export const VideoPlayer = ({ src, title, poster, contentId, contentType, onClos
                   {isAirPlayAvailable() && (
                     <DropdownMenuItem onClick={startAirPlay} className="gap-2">
                       <Airplay className="h-4 w-4" />
-                      AirPlay
+                      AirPlay (Apple)
                     </DropdownMenuItem>
                   )}
-                  <DropdownMenuItem onClick={startCast} className="gap-2">
+                  <DropdownMenuItem 
+                    onClick={() => openInExternalApp('vlc')} 
+                    className="gap-2"
+                  >
+                    <Play className="h-4 w-4" />
+                    Abrir no VLC
+                  </DropdownMenuItem>
+                  <DropdownMenuItem 
+                    onClick={() => openInExternalApp('mxplayer')} 
+                    className="gap-2"
+                  >
+                    <Play className="h-4 w-4" />
+                    Abrir no MX Player
+                  </DropdownMenuItem>
+                  <DropdownMenuItem 
+                    onClick={() => openInExternalApp('webvideo')} 
+                    className="gap-2"
+                  >
                     <Cast className="h-4 w-4" />
-                    {isCasting ? 'Parar Cast' : 'Transmitir / Copiar Link'}
+                    Web Video Caster
+                  </DropdownMenuItem>
+                  <DropdownMenuItem 
+                    onClick={async () => {
+                      await navigator.clipboard.writeText(src);
+                      toast.success('Link copiado! Cole no seu player ou TV');
+                    }}
+                    className="gap-2"
+                  >
+                    <Link className="h-4 w-4" />
+                    Copiar Link do Vídeo
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
               
-              <button onClick={toggleFullscreen} className="p-2 hover:bg-secondary/50 rounded-full transition-colors">
+              <button 
+                onClick={toggleFullscreen} 
+                className="p-2 hover:bg-secondary/50 rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-primary"
+                title="Fullscreen (F)"
+              >
                 {isFullscreen ? <Minimize className="h-5 w-5 md:h-6 md:w-6" /> : <Maximize className="h-5 w-5 md:h-6 md:w-6" />}
               </button>
             </div>
           </div>
+          
+          {/* Dica de navegação por teclado/controle remoto (Android TV) */}
+          {isCapacitorApp() && (
+            <div className="mt-3 flex items-center justify-center gap-6 text-xs text-muted-foreground/70 animate-fade-in">
+              <span className="flex items-center gap-1">
+                <kbd className="px-1.5 py-0.5 bg-secondary/30 rounded">←→</kbd> -10s/+10s
+              </span>
+              <span className="flex items-center gap-1">
+                <kbd className="px-1.5 py-0.5 bg-secondary/30 rounded">↑↓</kbd> Volume
+              </span>
+              <span className="flex items-center gap-1">
+                <kbd className="px-1.5 py-0.5 bg-secondary/30 rounded">Enter</kbd> Play/Pause
+              </span>
+              <span className="flex items-center gap-1">
+                <kbd className="px-1.5 py-0.5 bg-secondary/30 rounded">ESC</kbd> Fechar
+              </span>
+            </div>
+          )}
         </div>
       </div>
     </div>
