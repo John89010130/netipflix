@@ -50,9 +50,10 @@ const TV = () => {
 
       if (!error && data) {
         const channels = data as unknown as { category: string }[];
-        const uniqueCategories = [...new Set(channels.map(c => c.category))].sort();
+        const uniqueCategories = [...new Set(channels.map(c => c.category))].filter(c => c && c.trim() !== '');
         const regularCategories = uniqueCategories.filter(c => !isAdultCategory(c));
         const adultCategories = uniqueCategories.filter(c => isAdultCategory(c));
+        // Adultas por último
         setCategories(['Todos', ...regularCategories, ...(adultCategories.length > 0 ? ['🔞 Adulto'] : [])]);
       }
     };
@@ -97,9 +98,14 @@ const TV = () => {
         .select('*')
         .eq('content_type', 'TV');
 
-      // Apply search filter at database level
+      // Busca inicial no banco (busca ampla)
       if (debouncedSearch) {
-        query = query.ilike('name', `%${debouncedSearch}%`);
+        // Dividir em palavras e buscar cada uma
+        const words = debouncedSearch.trim().split(/\s+/).filter(w => w.length > 0);
+        if (words.length > 0) {
+          // Buscar pelo menos a primeira palavra no banco
+          query = query.or(`name.ilike.%${words[0]}%,category.ilike.%${words[0]}%`);
+        }
       }
 
       // For specific category (not "Todos" or "Adulto"), filter by exact category
@@ -119,6 +125,11 @@ const TV = () => {
       
       if (allData) {
         let filteredData = allData as unknown as Channel[];
+        
+        // Filtrar por todas as palavras do lado do cliente (busca mais precisa)
+        if (debouncedSearch) {
+          filteredData = filterByAllWords(filteredData, debouncedSearch, ['name', 'category']);
+        }
         
         // Filter for adult/non-adult content based on selected category
         if (selectedCategory === 'Todos') {

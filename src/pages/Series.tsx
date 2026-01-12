@@ -7,6 +7,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Loader2, Search, X, Play, ChevronDown, ChevronUp, Tv } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+import { filterByAllWords } from '@/utils/searchUtils';
 
 interface Episode {
   id: string;
@@ -62,12 +63,22 @@ const Series = () => {
         .select('category')
         .eq('content_type', 'SERIES');
 
+      console.log('📂 Categorias SERIES:', { data, error });
+
       if (!error && data) {
         const channels = data as unknown as { category: string }[];
-        const uniqueCategories = [...new Set(channels.map(c => c.category))].sort();
+        const uniqueCategories = [...new Set(channels.map(c => c.category))].filter(c => c && c.trim() !== '');
+        console.log('📋 Categorias únicas:', uniqueCategories);
+        
         const regularCategories = uniqueCategories.filter(c => !isAdultCategory(c));
         const adultCategories = uniqueCategories.filter(c => isAdultCategory(c));
-        setCategories(['Todos', ...regularCategories, ...(adultCategories.length > 0 ? ['🔞 Adulto'] : [])]);
+        
+        const finalCategories = ['Todos', ...regularCategories, ...(adultCategories.length > 0 ? ['🔞 Adulto'] : [])];
+        console.log('✅ Categorias finais:', finalCategories);
+        
+        setCategories(finalCategories);
+      } else if (error) {
+        console.error('❌ Erro ao buscar categorias:', error);
       }
     };
 
@@ -79,8 +90,19 @@ const Series = () => {
     const grouped = new Map<string, SeriesGroup>();
     
     episodes.forEach(ep => {
-      // Use series_title if available, otherwise use the full name as title
-      const title = ep.series_title || ep.name;
+      // Usar series_title ou name e normalizar SEMPRE removendo indicadores de temporada
+      let title = ep.series_title || ep.name;
+      
+      // Normalizar: remover SEMPRE [S##] ou [Temporada #] para agrupar corretamente
+      title = title
+        .replace(/\[S\d+\]/gi, '') // Remove [S01], [S02], etc
+        .replace(/\[Temporada\s*\d+\]/gi, '') // Remove [Temporada 1], etc
+        .replace(/\s*-\s*Temporada\s*\d+/gi, '') // Remove - Temporada 1
+        .replace(/Temporada\s*\d+/gi, '') // Remove Temporada 1
+        .replace(/\s*S\d+E\d+/gi, '') // Remove S01E01
+        .replace(/\s*T\d+/gi, '') // Remove T1, T2, etc
+        .replace(/\s+/g, ' ') // Normaliza espaços múltiplos
+        .trim();
       
       if (!grouped.has(title)) {
         grouped.set(title, {
@@ -143,9 +165,12 @@ const Series = () => {
       query = query.eq('category', selectedCategory);
     }
 
-    // Server-side search using ilike on series_title or name
+    // Busca inicial no banco (busca ampla pela primeira palavra)
     if (debouncedSearch) {
-      query = query.or(`name.ilike.%${debouncedSearch}%,series_title.ilike.%${debouncedSearch}%`);
+      const words = debouncedSearch.trim().split(/\s+/).filter(w => w.length > 0);
+      if (words.length > 0) {
+        query = query.or(`name.ilike.%${words[0]}%,series_title.ilike.%${words[0]}%,category.ilike.%${words[0]}%`);
+      }
     }
 
     const { data, error } = await query;
@@ -159,6 +184,11 @@ const Series = () => {
     
     if (data) {
       let filteredData = data as unknown as Episode[];
+      
+      // Filtrar por todas as palavras do lado do cliente
+      if (debouncedSearch) {
+        filteredData = filterByAllWords(filteredData, debouncedSearch, ['name', 'series_title', 'category']);
+      }
       
       // Filter by adult content (client-side since category filter is complex)
       if (selectedCategory === 'Todos') {

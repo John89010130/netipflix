@@ -8,6 +8,7 @@ import { ContentItem } from '@/types';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Loader2, Search, X } from 'lucide-react';
 import { Input } from '@/components/ui/input';
+import { filterByAllWords } from '@/utils/searchUtils';
 
 interface Channel {
   id: string;
@@ -53,9 +54,10 @@ const Movies = () => {
 
       if (!error && data) {
         const channels = data as unknown as { category: string }[];
-        const uniqueCategories = [...new Set(channels.map(c => c.category))].sort();
+        const uniqueCategories = [...new Set(channels.map(c => c.category))].filter(c => c && c.trim() !== '');
         const regularCategories = uniqueCategories.filter(c => !isAdultCategory(c));
         const adultCategories = uniqueCategories.filter(c => isAdultCategory(c));
+        // Adultas por último
         setCategories(['Todos', ...regularCategories, ...(adultCategories.length > 0 ? ['🔞 Adulto'] : [])]);
       }
     };
@@ -93,8 +95,12 @@ const Movies = () => {
       query = query.eq('category', selectedCategory);
     }
 
+    // Busca inicial no banco (busca ampla)
     if (debouncedSearch) {
-      query = query.ilike('name', `%${debouncedSearch}%`);
+      const words = debouncedSearch.trim().split(/\s+/).filter(w => w.length > 0);
+      if (words.length > 0) {
+        query = query.or(`name.ilike.%${words[0]}%,category.ilike.%${words[0]}%`);
+      }
     }
 
     const { data, error } = await query;
@@ -114,6 +120,11 @@ const Movies = () => {
     
     if (data) {
       let filteredData = data as unknown as Channel[];
+      
+      // Filtrar por todas as palavras do lado do cliente
+      if (debouncedSearch) {
+        filteredData = filterByAllWords(filteredData, debouncedSearch, ['name', 'category']);
+      }
       
       console.log('🎬 Movies: Antes de filtrar adulto:', filteredData.length);
       
