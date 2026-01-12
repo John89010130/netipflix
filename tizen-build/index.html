@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Netipflix - Samsung TV</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background: #000;
+        }
+        
+        #webview-container {
+            width: 100%;
+            height: 100%;
+        }
+        
+        #loading {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: #0a0a0a;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 9999;
+        }
+        
+        .spinner {
+            width: 50px;
+            height: 50px;
+            border: 4px solid rgba(220, 38, 38, 0.3);
+            border-top-color: #dc2626;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        
+        #loading p {
+            margin-top: 20px;
+            color: #fff;
+            font-family: Arial, sans-serif;
+            font-size: 18px;
+        }
+        
+        #error {
+            display: none;
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(220, 38, 38, 0.9);
+            color: white;
+            padding: 30px;
+            border-radius: 10px;
+            text-align: center;
+            max-width: 500px;
+            font-family: Arial, sans-serif;
+        }
+    </style>
+</head>
+<body>
+    <div id="loading">
+        <div class="spinner"></div>
+        <p>Carregando Netipflix...</p>
+    </div>
+    
+    <div id="error">
+        <h2>Erro de Conexão</h2>
+        <p id="error-message"></p>
+        <p style="margin-top: 15px; font-size: 14px;">Pressione ENTER para tentar novamente</p>
+    </div>
+    
+    <iframe 
+        id="webview-container"
+        style="display: none;"
+        frameborder="0"
+        allowfullscreen>
+    </iframe>
+
+    <script>
+        // Detectar URL base - pode ser alterada conforme necessário
+        const APP_URL = 'https://netipflix.pages.dev'; // Altere para sua URL
+        
+        const loading = document.getElementById('loading');
+        const errorDiv = document.getElementById('error');
+        const errorMessage = document.getElementById('error-message');
+        const webview = document.getElementById('webview-container');
+        
+        let retryCount = 0;
+        const MAX_RETRIES = 3;
+        
+        function showError(message) {
+            loading.style.display = 'none';
+            errorDiv.style.display = 'block';
+            errorMessage.textContent = message;
+        }
+        
+        function loadApp() {
+            retryCount++;
+            
+            // Teste de conectividade
+            fetch(APP_URL, { 
+                method: 'HEAD',
+                mode: 'no-cors',
+                cache: 'no-cache'
+            })
+            .then(() => {
+                // Carregar app no iframe
+                webview.src = APP_URL;
+                
+                webview.onload = () => {
+                    loading.style.display = 'none';
+                    webview.style.display = 'block';
+                };
+                
+                webview.onerror = () => {
+                    if (retryCount < MAX_RETRIES) {
+                        setTimeout(loadApp, 2000);
+                    } else {
+                        showError('Não foi possível carregar o app. Verifique sua conexão com a internet.');
+                    }
+                };
+            })
+            .catch(err => {
+                console.error('Connection error:', err);
+                if (retryCount < MAX_RETRIES) {
+                    setTimeout(loadApp, 2000);
+                } else {
+                    showError('Sem conexão com a internet. Conecte sua TV e tente novamente.');
+                }
+            });
+        }
+        
+        // Iniciar carregamento
+        loadApp();
+        
+        // Controle remoto - permitir voltar
+        window.addEventListener('keydown', function(e) {
+            // ENTER para retry
+            if (e.keyCode === 13 && errorDiv.style.display === 'block') {
+                errorDiv.style.display = 'none';
+                loading.style.display = 'flex';
+                retryCount = 0;
+                loadApp();
+            }
+            
+            // BACK button - fechar app
+            if (e.keyCode === 10009) {
+                try {
+                    tizen.application.getCurrentApplication().exit();
+                } catch (err) {
+                    window.close();
+                }
+            }
+        });
+        
+        // Tizen-specific APIs
+        if (typeof tizen !== 'undefined') {
+            try {
+                // Registrar teclas do controle remoto
+                tizen.tvinputdevice.registerKey('MediaPlay');
+                tizen.tvinputdevice.registerKey('MediaPause');
+                tizen.tvinputdevice.registerKey('MediaPlayPause');
+                tizen.tvinputdevice.registerKey('MediaRewind');
+                tizen.tvinputdevice.registerKey('MediaFastForward');
+            } catch (e) {
+                console.warn('Could not register TV keys:', e);
+            }
+        }
+    </script>
+</body>
+</html>

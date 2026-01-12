@@ -1,0 +1,40 @@
+# Habilitar rewrite para SPA (Single Page Application)
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteBase /
+  
+  # Se o arquivo ou diretório existe, servir diretamente
+  RewriteCond %{REQUEST_FILENAME} !-f
+  RewriteCond %{REQUEST_FILENAME} !-d
+  
+  # Caso contrário, redirecionar para index.html (React Router)
+  RewriteRule ^ index.html [L]
+</IfModule>
+
+# Tipos MIME corretos
+<IfModule mod_mime.c>
+  AddType application/javascript .js
+  AddType text/css .css
+  AddType application/json .json
+  AddType image/svg+xml .svg
+  AddType application/font-woff2 .woff2
+  AddType video/mp2t .ts
+  AddType application/vnd.apple.mpegurl .m3u8
+</IfModule>
+
+# Permitir CORS para streams
+<IfModule mod_headers.c>
+  Header set Access-Control-Allow-Origin "*"
+  Header set Access-Control-Allow-Methods "GET, POST, OPTIONS"
+  Header set Access-Control-Allow-Headers "Content-Type"
+</IfModule>
+
+# Cache para assets estáticos
+<IfModule mod_expires.c>
+  ExpiresActive On
+  ExpiresByType image/png "access plus 1 month"
+  ExpiresByType image/jpeg "access plus 1 month"
+  ExpiresByType image/svg+xml "access plus 1 month"
+  ExpiresByType text/css "access plus 1 week"
+  ExpiresByType application/javascript "access plus 1 week"
+</IfModule>

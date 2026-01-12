@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<widget xmlns="http://www.w3.org/ns/widgets" 
+        xmlns:tizen="http://tizen.org/ns/widgets" 
+        id="http://netipflix.tv/tizenapp" 
+        version="1.0.0" 
+        viewmodes="maximized">
+    <tizen:application id="ErP5axzXWN.Netipflix" 
+                       package="ErP5axzXWN" 
+                       required_version="6.0"/>
+    <content src="index.html"/>
+    <feature name="http://tizen.org/feature/screen.size.normal.1080.1920"/>
+    <icon src="icon.png"/>
+    <name>Netipflix</name>
+    <tizen:profile name="tv-samsung"/>
+    <tizen:setting screen-orientation="landscape" 
+                   context-menu="enable" 
+                   background-support="disable" 
+                   encryption="disable" 
+                   install-location="auto" 
+                   hwkey-event="enable"/>
+    <tizen:privilege name="http://tizen.org/privilege/internet"/>
+    <tizen:privilege name="http://tizen.org/privilege/tv.inputdevice"/>
+    <tizen:privilege name="http://tizen.org/privilege/mediacontroller.client"/>
+    <access origin="*" subdomains="true"/>
+    <allow-navigation href="*"/>
+    <tizen:metadata key="http://samsung.com/tv/metadata/use.preview" value="endpoint_URL"/>
+</widget>

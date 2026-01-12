@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<tizen:project xmlns:tizen="http://tizen.org/project">
+    <tizen:name>Netipflix</tizen:name>
+    <tizen:profile name="tv-samsung-6.0"/>
+    <tizen:template name="web"/>
+</tizen:project>

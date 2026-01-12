@@ -12,6 +12,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Search as SearchIcon, Film, Tv, PlayCircle, ChevronDown, ChevronUp, Play } from 'lucide-react';
 import { ContentItem } from '@/types';
 import { cn } from '@/lib/utils';
+import { filterByAllWords } from '@/utils/searchUtils';
 
 interface Channel {
   id: string;
@@ -92,11 +93,18 @@ const Search = () => {
 
     setLoading(true);
 
-    const { data, error } = await supabase
+    // Buscar pela primeira palavra no banco
+    const words = query.trim().split(/\s+/).filter(w => w.length > 0);
+    let dbQuery = supabase
       .from('active_channels' as any)
       .select('*')
-      .or(`name.ilike.%${query}%,series_title.ilike.%${query}%,category.ilike.%${query}%`)
       .limit(500);
+    
+    if (words.length > 0) {
+      dbQuery = dbQuery.or(`name.ilike.%${words[0]}%,series_title.ilike.%${words[0]}%,category.ilike.%${words[0]}%`);
+    }
+
+    const { data, error } = await dbQuery;
 
     if (error) {
       console.error('Search error:', error);
@@ -104,10 +112,14 @@ const Search = () => {
       return;
     }
 
+    // Filtrar por todas as palavras do lado do cliente
+    let filteredData = (data as unknown as Channel[]);
+    if (query.trim()) {
+      filteredData = filterByAllWords(filteredData, query, ['name', 'series_title', 'category']);
+    }
+    
     // Filter adult content
-    const safeResults = (data as unknown as Channel[]).filter(
-      c => !isAdultCategory(c.category)
-    );
+    const safeResults = filteredData.filter(c => !isAdultCategory(c.category));
 
     setResults(safeResults);
     setLoading(false);

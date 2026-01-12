@@ -12,6 +12,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { toast } from 'sonner';
+import { filterByAllWords } from '@/utils/searchUtils';
 import { 
   Tv, 
   Film, 
@@ -204,8 +205,12 @@ export const AdminChannels = ({ testJob, onStartTest, isTestRunning, onRefreshCh
       query = query.eq('subcategory', selectedSubcategory);
     }
     
+    // Busca inicial no banco (pela primeira palavra)
     if (searchTerm.trim()) {
-      query = query.or(`name.ilike.%${searchTerm.trim()}%,clean_title.ilike.%${searchTerm.trim()}%`);
+      const words = searchTerm.trim().split(/\s+/).filter(w => w.length > 0);
+      if (words.length > 0) {
+        query = query.or(`name.ilike.%${words[0]}%,clean_title.ilike.%${words[0]}%,category.ilike.%${words[0]}%,series_title.ilike.%${words[0]}%`);
+      }
     }
     
     const { data, error } = await query;
@@ -214,7 +219,13 @@ export const AdminChannels = ({ testJob, onStartTest, isTestRunning, onRefreshCh
       toast.error('Erro ao carregar canais');
       console.error(error);
     } else {
-      const newChannels = (data || []) as Channel[];
+      let newChannels = (data || []) as Channel[];
+      
+      // Filtrar por todas as palavras do lado do cliente
+      if (searchTerm.trim()) {
+        newChannels = filterByAllWords(newChannels, searchTerm, ['name', 'clean_title', 'category', 'series_title']);
+      }
+      
       if (reset) {
         setChannels(newChannels);
       } else {
