@@ -3,6 +3,7 @@ import react from "@vitejs/plugin-react-swc";
 import path from "path";
 import { componentTagger } from "lovable-tagger";
 import { VitePWA } from "vite-plugin-pwa";
+import fs from "fs";
 
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => {
@@ -77,7 +78,21 @@ export default defineConfig(({ mode }) => {
             }
           ]
         }
-      })
+      }),
+      // Plugin para copiar index.html para 404.html (fix SPA routing no GitHub Pages)
+      {
+        name: 'copy-index-to-404',
+        closeBundle() {
+          const distPath = path.resolve(__dirname, 'dist');
+          const indexPath = path.join(distPath, 'index.html');
+          const notFoundPath = path.join(distPath, '404.html');
+          
+          if (fs.existsSync(indexPath)) {
+            fs.copyFileSync(indexPath, notFoundPath);
+            console.log('✅ 404.html criado para SPA routing no GitHub Pages');
+          }
+        }
+      }
     ].filter(Boolean),
     resolve: {
       alias: {
