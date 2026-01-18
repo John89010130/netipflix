@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button';
 import { ChannelCard } from '@/components/ChannelCard';
 
 const PAGE_SIZE = 200;
+const MAX_RESULTS = 5000; // Limite máximo de resultados
 
 const TV = () => {
   const [channels, setChannels] = useState<Channel[]>([]);
@@ -92,55 +93,113 @@ const TV = () => {
     const from = reset ? 0 : currentLength;
 
     try {
-      // Fetch only TV content type from active lists
-      let query = supabase
-        .from('active_channels' as any)
-        .select('*')
-        .eq('content_type', 'TV');
+      let allData: any[] = [];
 
-      // Busca inicial no banco (busca ampla)
-      if (debouncedSearch) {
-        // Dividir em palavras e buscar cada uma
+      // Se houver busca, tentar usar a função RPC otimizada
+      if (debouncedSearch && debouncedSearch.trim()) {
         const words = debouncedSearch.trim().split(/\s+/).filter(w => w.length > 0);
-        if (words.length > 0) {
-          // Buscar pelo menos a primeira palavra no banco
-          query = query.or(`name.ilike.%${words[0]}%,category.ilike.%${words[0]}%`);
+        
+        // Tentar usar função RPC para busca otimizada no banco
+        const { data: rpcData, error: rpcError } = await supabase.rpc('search_tv_channels', {
+          search_words: words,
+          selected_category: selectedCategory !== 'Todos' && selectedCategory !== '🔞 Adulto' ? selectedCategory : null,
+          max_results: MAX_RESULTS
+        });
+
+        // Se RPC funcionar, usar os dados
+        if (!rpcError && rpcData) {
+          allData = rpcData;
+          console.log('✅ Busca via RPC:', allData.length, 'resultados');
+        } else {
+          // Fallback: busca tradicional no banco
+          console.warn('⚠️ RPC não disponível, usando busca tradicional:', rpcError?.message);
+          
+          let query = supabase
+            .from('active_channels' as any)
+            .select('*')
+            .eq('content_type', 'TV')
+            .limit(MAX_RESULTS);
+
+          // For specific category
+          if (selectedCategory !== 'Todos' && selectedCategory !== '🔞 Adulto') {
+            query = query.eq('category', selectedCategory);
+          }
+
+          // Buscar pela primeira palavra no banco
+          if (words.length > 0) {
+            query = query.or(`name.ilike.%${words[0]}%,category.ilike.%${words[0]}%,country.ilike.%${words[0]}%`);
+          }
+
+          const { data, error } = await query;
+
+          if (error) {
+            console.error('Error fetching channels:', error);
+            setLoading(false);
+            setLoadingMore(false);
+            return;
+          }
+
+          allData = data || [];
+          
+          // Filtrar no lado do cliente para garantir que TODAS as palavras estejam presentes
+          if (words.length > 1) {
+            allData = allData.filter((channel: any) => {
+              const searchableText = [
+                channel.name || '',
+                channel.category || '',
+                channel.country || '',
+              ].join(' ').toLowerCase();
+              
+              return words.every(word => searchableText.includes(word.toLowerCase()));
+            });
+          }
+          
+          console.log('✅ Busca tradicional:', allData.length, 'resultados');
         }
-      }
+      } else {
+        // Busca normal sem filtro de texto
+        let query = supabase
+          .from('active_channels' as any)
+          .select('*')
+          .eq('content_type', 'TV')
+          .limit(MAX_RESULTS);
 
-      // For specific category (not "Todos" or "Adulto"), filter by exact category
-      if (selectedCategory !== 'Todos' && selectedCategory !== '🔞 Adulto') {
-        query = query.eq('category', selectedCategory);
-      }
+        // For specific category (not "Todos" or "Adulto"), filter by exact category
+        if (selectedCategory !== 'Todos' && selectedCategory !== '🔞 Adulto') {
+          query = query.eq('category', selectedCategory);
+        }
 
-      // Execute query without pagination first to get all matching records
-      const { data: allData, error } = await query;
+        const { data, error } = await query;
 
-      if (error) {
-        console.error('Error fetching channels:', error);
-        setLoading(false);
-        setLoadingMore(false);
-        return;
+        if (error) {
+          console.error('Error fetching channels:', error);
+          setLoading(false);
+          setLoadingMore(false);
+          return;
+        }
+
+        allData = data || [];
+        console.log('✅ Carregamento normal:', allData.length, 'canais');
       }
       
       if (allData) {
-        let filteredData = allData as unknown as Channel[];
+        console.log('📊 Total de canais antes de filtros:', allData.length);
         
-        // Filtrar por todas as palavras do lado do cliente (busca mais precisa)
-        if (debouncedSearch) {
-          filteredData = filterByAllWords(filteredData, debouncedSearch, ['name', 'category']);
-        }
+        let filteredData = allData as unknown as Channel[];
         
         // Filter for adult/non-adult content based on selected category
         if (selectedCategory === 'Todos') {
           // Show only non-adult channels
           filteredData = filteredData.filter(c => !isAdultCategory(c.category));
+          console.log('📊 Após filtro adulto (Todos):', filteredData.length);
         } else if (selectedCategory === '🔞 Adulto') {
           // Show only adult channels
           filteredData = filteredData.filter(c => isAdultCategory(c.category));
+          console.log('📊 Após filtro adulto (Adulto):', filteredData.length);
         }
 
         // Sort: BR channels first, then alphabetically by cleaned name
+        // (a função RPC já faz isso, mas garantimos aqui também)
         filteredData.sort((a, b) => {
           const aIsBR = a.name.toUpperCase().startsWith('BR:');
           const bIsBR = b.name.toUpperCase().startsWith('BR:');
@@ -151,6 +210,7 @@ const TV = () => {
 
         // Apply pagination in memory
         const paginatedData = filteredData.slice(from, from + PAGE_SIZE);
+        console.log('📊 Paginação:', from, 'até', from + PAGE_SIZE, '=', paginatedData.length, 'canais');
 
         if (reset) {
           setChannels(paginatedData);
@@ -160,6 +220,7 @@ const TV = () => {
         
         // Check if there's more data to load
         setHasMore(from + PAGE_SIZE < filteredData.length);
+        console.log('📊 Total final carregado:', paginatedData.length, '| Tem mais?', from + PAGE_SIZE < filteredData.length);
       }
     } catch (err) {
       console.error('Error in fetchChannels:', err);

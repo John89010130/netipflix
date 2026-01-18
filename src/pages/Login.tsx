@@ -2,9 +2,10 @@ import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Eye, EyeOff, Mail, Lock, User } from 'lucide-react';
+import { Eye, EyeOff, Mail, Lock, User, QrCode } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'sonner';
+import { QRCodeLogin } from '@/components/QRCodeLogin';
 
 const Login = () => {
   const [email, setEmail] = useState('');
@@ -13,6 +14,7 @@ const Login = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isSignUp, setIsSignUp] = useState(false);
+  const [showQRCode, setShowQRCode] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
   const { signIn, signUp, user } = useAuth();
@@ -87,14 +89,28 @@ const Login = () => {
         </h1>
       </div>
 
-      {/* Login Form */}
+      {/* Login Form or QR Code */}
       <div className="relative z-10 w-full max-w-md mx-4">
         <div className="bg-card/90 backdrop-blur-xl rounded-lg p-8 md:p-12 shadow-2xl border border-border/50">
           <h2 className="font-display text-3xl md:text-4xl mb-8 tracking-wide">
-            {isSignUp ? 'Criar Conta' : 'Entrar'}
+            {showQRCode ? 'Login Rápido' : (isSignUp ? 'Criar Conta' : 'Entrar')}
           </h2>
 
-          <form onSubmit={handleSubmit} className="space-y-6">
+          {showQRCode ? (
+            <>
+              <QRCodeLogin />
+              <div className="mt-6 text-center">
+                <button
+                  onClick={() => setShowQRCode(false)}
+                  className="text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  ← Voltar para login tradicional
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <form onSubmit={handleSubmit} className="space-y-6">
           {isSignUp && (
               <div className="space-y-2">
                 <label className="text-sm text-muted-foreground">Nome</label>
@@ -177,11 +193,40 @@ const Login = () => {
           </div>
 
           {!isSignUp && (
-            <div className="mt-4 text-center">
-              <button className="text-sm text-muted-foreground hover:text-foreground transition-colors">
-                Esqueceu a senha?
-              </button>
-            </div>
+            <>
+              <div className="mt-4 text-center">
+                <button className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+                  Esqueceu a senha?
+                </button>
+              </div>
+
+              {/* QR Code Login Button */}
+              <div className="mt-6">
+                <div className="relative">
+                  <div className="absolute inset-0 flex items-center">
+                    <div className="w-full border-t border-border"></div>
+                  </div>
+                  <div className="relative flex justify-center text-xs uppercase">
+                    <span className="bg-card px-2 text-muted-foreground">Ou</span>
+                  </div>
+                </div>
+
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full mt-4"
+                  onClick={() => setShowQRCode(true)}
+                >
+                  <QrCode className="h-5 w-5 mr-2" />
+                  Login via QR Code
+                </Button>
+                <p className="text-xs text-muted-foreground text-center mt-2">
+                  Ideal para TV/Projetor
+                </p>
+              </div>
+            </>
+          )}
+            </>
           )}
         </div>
       </div>

@@ -13,6 +13,7 @@ import { SessionLimitModal } from "./components/SessionLimitModal";
 import { useTVNavigation, tvFocusStyles } from "./hooks/useTVNavigation";
 import Index from "./pages/Index";
 import Login from "./pages/Login";
+import QRLogin from "./pages/QRLogin";
 import ProfileSelect from "./pages/ProfileSelect";
 import ProfileManage from "./pages/ProfileManage";
 import TV from "./pages/TV";
@@ -62,6 +63,7 @@ const App = () => (
             <SessionLimitModal />
             <Routes>
               <Route path="/login" element={<Login />} />
+              <Route path="/qr-login" element={<QRLogin />} />
               <Route
                 path="/profiles"
                 element={
