@@ -24,8 +24,8 @@ export const QRCodeLogin = () => {
       const token = `qr_${Date.now()}_${Math.random().toString(36).substring(7)}`;
       console.log('📝 Token gerado:', token);
       
-      // Gerar URL do QR Code usando domínio público
-      const loginUrl = `https://netipflix.startapp.net.br/qr-login?token=${token}`;
+      // Gerar URL do QR Code usando domínio público com HASH ROUTER
+      const loginUrl = `https://netipflix.startapp.net.br/#/qr-login?token=${token}`;
       console.log('🔗 URL de login:', loginUrl);
       
       // Gerar QR Code usando API pública
