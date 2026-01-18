@@ -16,18 +16,22 @@ const QRLogin = () => {
   const [validating, setValidating] = useState(true);
   const [tokenValid, setTokenValid] = useState(false);
   const [success, setSuccess] = useState(false);
-  const [debugMessages, setDebugMessages] = useState<string[]>([]);
+  const [debugMessages, setDebugMessages] = useState<string[]>(['🚀 Componente QRLogin montado']);
 
   useEffect(() => {
     const tokenParam = searchParams.get('token');
-    setDebugMessages(['🚀 Página QR Login carregada']);
+    const url = window.location.href;
+    
+    setDebugMessages(prev => [...prev, `🌐 URL: ${url}`]);
+    setDebugMessages(prev => [...prev, `🔍 Procurando token na URL...`]);
     
     if (tokenParam) {
-      setDebugMessages(prev => [...prev, `📝 Token encontrado: ${tokenParam.substring(0, 20)}...`]);
+      setDebugMessages(prev => [...prev, `✅ Token encontrado: ${tokenParam}`]);
       setToken(tokenParam);
       validateToken(tokenParam);
     } else {
-      setDebugMessages(prev => [...prev, '❌ Token não encontrado na URL']);
+      setDebugMessages(prev => [...prev, `❌ ERRO: Token não encontrado na URL!`]);
+      setDebugMessages(prev => [...prev, `Search params: ${searchParams.toString()}`]);
       setValidating(false);
       toast.error('Token inválido');
     }
