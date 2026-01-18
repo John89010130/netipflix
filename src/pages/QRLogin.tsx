@@ -18,6 +18,16 @@ const QRLogin = () => {
   const [success, setSuccess] = useState(false);
   const [debugMessages, setDebugMessages] = useState<string[]>(['🚀 Componente QRLogin montado']);
 
+  // LOG GIGANTE para confirmar que componente montou
+  useEffect(() => {
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log('🚨🚨🚨 QRLogin.tsx MONTADO! 🚨🚨🚨');
+    console.log('URL:', window.location.href);
+    console.log('Hash:', window.location.hash);
+    console.log('Search:', window.location.search);
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  }, []);
+
   useEffect(() => {
     const tokenParam = searchParams.get('token');
     const url = window.location.href;
