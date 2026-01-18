@@ -16,13 +16,18 @@ const QRLogin = () => {
   const [validating, setValidating] = useState(true);
   const [tokenValid, setTokenValid] = useState(false);
   const [success, setSuccess] = useState(false);
+  const [debugMessages, setDebugMessages] = useState<string[]>([]);
 
   useEffect(() => {
     const tokenParam = searchParams.get('token');
+    setDebugMessages(['🚀 Página QR Login carregada']);
+    
     if (tokenParam) {
+      setDebugMessages(prev => [...prev, `📝 Token encontrado: ${tokenParam.substring(0, 20)}...`]);
       setToken(tokenParam);
       validateToken(tokenParam);
     } else {
+      setDebugMessages(prev => [...prev, '❌ Token não encontrado na URL']);
       setValidating(false);
       toast.error('Token inválido');
     }
@@ -30,6 +35,9 @@ const QRLogin = () => {
 
   const validateToken = async (tokenValue: string) => {
     try {
+      setDebugMessages(prev => [...prev, '🔍 Validando token...']);
+      console.log('🔍 Validando token:', tokenValue);
+      
       const { data, error } = await supabase
         .from('qr_login_tokens' as any)
         .select('*')
@@ -37,6 +45,8 @@ const QRLogin = () => {
         .single();
 
       if (error || !data) {
+        console.error('❌ Erro ao validar:', error);
+        setDebugMessages(prev => [...prev, `❌ Erro: ${error?.message || 'Token não encontrado'}`]);
         setTokenValid(false);
         toast.error('QR Code inválido ou expirado');
         setValidating(false);
@@ -44,9 +54,12 @@ const QRLogin = () => {
       }
 
       const tokenData = data as any;
+      console.log('✅ Token encontrado:', tokenData);
+      setDebugMessages(prev => [...prev, '✅ Token encontrado no banco']);
 
       // Verificar se já foi usado
       if (tokenData.used) {
+        setDebugMessages(prev => [...prev, '❌ Token já foi usado']);
         setTokenValid(false);
         toast.error('Este QR Code já foi usado');
         setValidating(false);
@@ -56,16 +69,20 @@ const QRLogin = () => {
       // Verificar se expirou
       const expiresAt = new Date(tokenData.expires_at);
       if (expiresAt < new Date()) {
+        setDebugMessages(prev => [...prev, '❌ Token expirado']);
         setTokenValid(false);
         toast.error('QR Code expirado');
         setValidating(false);
         return;
       }
 
+      console.log('✅ Token válido!');
+      setDebugMessages(prev => [...prev, '✅ Token válido! Pode fazer login']);
       setTokenValid(true);
       setValidating(false);
     } catch (error) {
       console.error('Erro ao validar token:', error);
+      setDebugMessages(prev => [...prev, `❌ Exceção: ${error}`]);
       setTokenValid(false);
       setValidating(false);
       toast.error('Erro ao validar QR Code');
@@ -79,8 +96,7 @@ const QRLogin = () => {
       toast.error('Preencha todos os campos');
       return;
     }
-
-    setLoading(true);
+    setDebugMessages(prev => [...prev, '🔐 Fazendo login no Supabase...']);
 
     try {
       // Primeiro, fazer login para verificar credenciais
@@ -90,36 +106,60 @@ const QRLogin = () => {
       });
 
       if (authError || !authData.user) {
+        setDebugMessages(prev => [...prev, `❌ Login falhou: ${authError?.message}`]);
         toast.error('Email ou senha incorretos');
         setLoading(false);
         return;
       }
 
+      setDebugMessages(prev => [...prev, `✅ Login OK! User ID: ${authData.user.id.substring(0, 8)}...`]);
+      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      console.log('✅ LOGIN REALIZADO NO CELULAR!');
+      console.log('User ID:', authData.user.id);
+      console.log('Email:', email);
+      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+
       // Atualizar o token com as informações de login
-      const { error: updateError } = await supabase
+      setDebugMessages(prev => [...prev, '💾 Atualizando token no banco...']);
+      console.log('💾 ATUALIZANDO TOKEN NO BANCO...');
+      console.log('Token:', token);
+      console.log('Dados a salvar:', {
+        used: true,
+        user_id: authData.user.id,
+        email: email,
+        has_password: true
+      });
+
+      const { error: updateError, data: updateResult } = await supabase
         .from('qr_login_tokens' as any)
         .update({
           used: true,
           user_id: authData.user.id,
           email: email,
-          temp_password: password, // Apenas para transferir, será usado uma vez
+          temp_password: password,
           used_at: new Date().toISOString()
         })
-        .eq('token', token);
+        .eq('token', token)
+        .select();
 
       if (updateError) {
-        console.error('❌ Erro ao atualizar token:', updateError);
+        console.error('❌❌❌ ERRO AO ATUALIZAR TOKEN:', updateError);
+        setDebugMessages(prev => [...prev, `❌ ERRO UPDATE: ${updateError.message}`]);
         toast.error('Erro ao processar login');
         setLoading(false);
         return;
       }
 
-      console.log('✅ Token atualizado com sucesso!');
-      console.log('📊 Dados salvos:', { used: true, user_id: authData.user.id, email });
+      setDebugMessages(prev => [...prev, `✅ UPDATE OK! Linhas: ${updateResult?.length || 0}`]);
+      console.log('✅✅✅ TOKEN ATUALIZADO COM SUCESSO!');
+      console.log('Resultado:', updateResult);
+      console.log('Linhas afetadas:', updateResult?.length);
+      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
       // Fazer logout neste dispositivo (celular)
       await supabase.auth.signOut();
 
+      setDebugMessages(prev => [...prev, '✅ Tudo OK! Você será redirecionado...']);
       setSuccess(true);
       toast.success('Login autorizado! Você pode fechar esta página.');
       
@@ -187,6 +227,16 @@ const QRLogin = () => {
   return (
     <div className="min-h-screen flex items-center justify-center bg-background p-4">
       <div className="max-w-md w-full">
+        {/* Debug Messages */}
+        {debugMessages.length > 0 && (
+          <div className="mb-4 bg-card border border-border rounded-lg p-4 max-h-40 overflow-y-auto">
+            <h3 className="text-xs font-bold mb-2 text-primary">LOG DE DEBUG:</h3>
+            {debugMessages.map((msg, i) => (
+              <div key={i} className="text-xs font-mono mb-1">{msg}</div>
+            ))}
+          </div>
+        )}
+        
         <div className="bg-card rounded-lg p-8 shadow-lg border border-border space-y-6">
           {/* Header */}
           <div className="text-center space-y-2">

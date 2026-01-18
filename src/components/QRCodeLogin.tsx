@@ -73,7 +73,10 @@ export const QRCodeLogin = () => {
   // Verificar se o QR Code foi escaneado e autenticado
   const checkLoginStatus = useCallback(async (token: string) => {
     try {
-      console.log('🔍 Verificando status do token...');
+      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      console.log('🔍 VERIFICANDO STATUS DO TOKEN');
+      console.log('Token:', token);
+      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
       
       const { data, error } = await supabase
         .from('qr_login_tokens' as any)
@@ -82,46 +85,58 @@ export const QRCodeLogin = () => {
         .single();
 
       if (error) {
-        console.error('❌ Erro ao verificar token:', error);
+        console.error('❌ ERRO AO BUSCAR TOKEN:', error);
+        console.log('Código do erro:', error.code);
+        console.log('Mensagem:', error.message);
         return false;
       }
 
       const tokenData = data as any;
-      console.log('📊 Token data:', { used: tokenData?.used, hasUserId: !!tokenData?.user_id });
+      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      console.log('📊 DADOS DO TOKEN RECEBIDOS:');
+      console.log('ID:', tokenData?.id);
+      console.log('Used:', tokenData?.used);
+      console.log('User ID:', tokenData?.user_id);
+      console.log('Email:', tokenData?.email);
+      console.log('Tem senha temporária:', !!tokenData?.temp_password);
+      console.log('Criado em:', tokenData?.created_at);
+      console.log('Usado em:', tokenData?.used_at);
+      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
       // Verificar se foi usado e tem user_id
       if (tokenData?.used && tokenData?.user_id) {
-        console.log('✅ Token foi usado! Buscando credenciais...');
+        console.log('✅ TOKEN FOI USADO! Iniciando login automático...');
         
-        // Buscar credenciais temporárias
-        const { data: userData, error: userError } = await supabase
-          .from('qr_login_tokens' as any)
-          .select('email, temp_password')
-          .eq('token', token)
-          .single();
-
-        const userDataTyped = userData as any;
-        console.log('📧 Credenciais:', { hasEmail: !!userDataTyped?.email, hasPassword: !!userDataTyped?.temp_password });
-
-        if (!userError && userDataTyped?.email && userDataTyped?.temp_password) {
-          console.log('🔐 Fazendo login automático...');
+        if (tokenData?.email && tokenData?.temp_password) {
+          console.log('🔐 Credenciais encontradas:');
+          console.log('Email:', tokenData.email);
+          console.log('Senha:', tokenData.temp_password.substring(0, 3) + '***');
           
-          // Fazer login automaticamente
-          const { error: loginError } = await signIn(userDataTyped.email, userDataTyped.temp_password);
+          console.log('🚀 Chamando signIn...');
+          const { error: loginError } = await signIn(tokenData.email, tokenData.temp_password);
           
           if (!loginError) {
-            console.log('✅ Login automático realizado!');
+            console.log('✅✅✅ LOGIN AUTOMÁTICO REALIZADO COM SUCESSO!');
             toast.success('Login realizado com sucesso!');
             return true;
           } else {
-            console.error('❌ Erro no login:', loginError);
+            console.error('❌ ERRO NO LOGIN:', loginError);
+            console.log('Mensagem:', loginError.message);
           }
+        } else {
+          console.warn('⚠️ Token usado mas faltam credenciais:');
+          console.log('Email:', tokenData?.email);
+          console.log('Tem senha:', !!tokenData?.temp_password);
         }
+      } else {
+        console.log('⏳ Token ainda não foi usado ou sem user_id');
+        console.log('Used:', tokenData?.used);
+        console.log('User ID:', tokenData?.user_id);
       }
 
       return false;
     } catch (error) {
-      console.error('❌ Erro ao verificar login:', error);
+      console.error('❌ EXCEÇÃO ao verificar login:', error);
       return false;
     }
   }, [signIn]);
@@ -185,12 +200,23 @@ export const QRCodeLogin = () => {
             <Loader2 className="h-12 w-12 animate-spin text-primary" />
           </div>
         ) : qrCode ? (
-          <div className="relative">
+          <div className="space-y-4">
             <img 
               src={qrCode} 
               alt="QR Code para login" 
               className="w-[300px] h-[300px] rounded-lg shadow-lg"
             />
+            {/* URL para copiar */}
+            <div className="bg-muted p-3 rounded-lg">
+              <p className="text-xs text-muted-foreground mb-1">URL para copiar:</p>
+              <input 
+                type="text" 
+                readOnly 
+                value={`https://netipflix.startapp.net.br/#/qr-login?token=${loginToken}`}
+                className="w-full text-xs bg-background p-2 rounded border border-border cursor-text select-all"
+                onClick={(e) => e.currentTarget.select()}
+              />
+            </div>
           </div>
         ) : (
           <div className="w-[300px] h-[300px] flex items-center justify-center bg-destructive/10 rounded-lg border-2 border-dashed border-destructive/50">
