@@ -108,11 +108,14 @@ const QRLogin = () => {
         .eq('token', token);
 
       if (updateError) {
-        console.error('Erro ao atualizar token:', updateError);
+        console.error('❌ Erro ao atualizar token:', updateError);
         toast.error('Erro ao processar login');
         setLoading(false);
         return;
       }
+
+      console.log('✅ Token atualizado com sucesso!');
+      console.log('📊 Dados salvos:', { used: true, user_id: authData.user.id, email });
 
       // Fazer logout neste dispositivo (celular)
       await supabase.auth.signOut();

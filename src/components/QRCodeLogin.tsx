@@ -52,6 +52,8 @@ export const QRCodeLogin = () => {
       if (dbError) {
         console.warn('⚠️ Aviso: Não foi possível salvar no banco:', dbError.message);
         setError('Banco de dados offline - Login pode não funcionar');
+        // MESMO COM ERRO, COMEÇAR A VERIFICAR (pode funcionar depois)
+        startChecking(token);
       } else {
         console.log('✅ Token salvo com sucesso!');
         // Começar a verificar se foi escaneado
@@ -71,6 +73,8 @@ export const QRCodeLogin = () => {
   // Verificar se o QR Code foi escaneado e autenticado
   const checkLoginStatus = useCallback(async (token: string) => {
     try {
+      console.log('🔍 Verificando status do token...');
+      
       const { data, error } = await supabase
         .from('qr_login_tokens' as any)
         .select('*')
@@ -78,14 +82,17 @@ export const QRCodeLogin = () => {
         .single();
 
       if (error) {
-        console.error('Erro ao verificar token:', error);
+        console.error('❌ Erro ao verificar token:', error);
         return false;
       }
 
       const tokenData = data as any;
+      console.log('📊 Token data:', { used: tokenData?.used, hasUserId: !!tokenData?.user_id });
 
       // Verificar se foi usado e tem user_id
       if (tokenData?.used && tokenData?.user_id) {
+        console.log('✅ Token foi usado! Buscando credenciais...');
+        
         // Buscar credenciais temporárias
         const { data: userData, error: userError } = await supabase
           .from('qr_login_tokens' as any)
@@ -94,21 +101,27 @@ export const QRCodeLogin = () => {
           .single();
 
         const userDataTyped = userData as any;
+        console.log('📧 Credenciais:', { hasEmail: !!userDataTyped?.email, hasPassword: !!userDataTyped?.temp_password });
 
         if (!userError && userDataTyped?.email && userDataTyped?.temp_password) {
+          console.log('🔐 Fazendo login automático...');
+          
           // Fazer login automaticamente
           const { error: loginError } = await signIn(userDataTyped.email, userDataTyped.temp_password);
           
           if (!loginError) {
+            console.log('✅ Login automático realizado!');
             toast.success('Login realizado com sucesso!');
             return true;
+          } else {
+            console.error('❌ Erro no login:', loginError);
           }
         }
       }
 
       return false;
     } catch (error) {
-      console.error('Erro ao verificar login:', error);
+      console.error('❌ Erro ao verificar login:', error);
       return false;
     }
   }, [signIn]);
