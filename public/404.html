@@ -1,14 +1,26 @@
 <!DOCTYPE html>
-<html>
+<html lang="pt-BR">
   <head>
     <meta charset="utf-8">
-    <title>NETIPFLIX</title>
+    <title>NETIPFLIX - Redirecionando...</title>
     <script>
-      // GitHub Pages SPA redirect
-      sessionStorage.redirect = location.href;
+      // GitHub Pages SPA redirect para domínio personalizado
+      // Pega o path atual e redireciona para o index.html
+      var redirect = sessionStorage.redirect;
+      delete sessionStorage.redirect;
+      if (redirect && redirect != location.href) {
+        history.replaceState(null, null, redirect);
+      }
+      
+      // Se não tem redirect salvo, vai para o path atual
+      var pathSegments = location.pathname.split('/').filter(Boolean);
+      var route = pathSegments.length > 0 ? '/' + pathSegments.join('/') : '/';
+      
+      // Redireciona para o index.html mantendo o path
+      location.replace(location.origin + route + location.search + location.hash);
     </script>
-    <meta http-equiv="refresh" content="0;URL='/netipflix/'">
   </head>
   <body>
+    <p style="text-align:center;padding:50px;color:#666;">Redirecionando...</p>
   </body>
 </html>
