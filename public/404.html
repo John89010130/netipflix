@@ -2,15 +2,23 @@
 <html lang="pt-BR">
   <head>
     <meta charset="utf-8">
-    <title>NETIPFLIX - Redirecionando...</title>
+    <title>NETIPFLIX</title>
     <script>
-      // Salva a URL completa para o index.html restaurar
-      sessionStorage.setItem('redirect', location.href);
-      // Redireciona para a raiz
-      location.replace(location.origin + '/');
+      // Single Page Apps para GitHub Pages
+      // https://github.com/rafgraph/spa-github-pages
+      // Converte o path e query string em hash fragments
+      var pathSegmentsToKeep = 0;
+      
+      var l = window.location;
+      l.replace(
+        l.protocol + '//' + l.hostname + (l.port ? ':' + l.port : '') +
+        l.pathname.split('/').slice(0, 1 + pathSegmentsToKeep).join('/') + '/?/' +
+        l.pathname.slice(1).split('/').slice(pathSegmentsToKeep).join('/').replace(/&/g, '~and~') +
+        (l.search ? '&' + l.search.slice(1).replace(/&/g, '~and~') : '') +
+        l.hash
+      );
     </script>
   </head>
   <body>
-    <p style="text-align:center;padding:50px;color:#666;">Redirecionando...</p>
   </body>
 </html>

@@ -7,14 +7,19 @@
     
     <!-- SPA Redirect Script (para GitHub Pages) -->
     <script>
-      // Restaura a URL original salva pelo 404.html
-      (function() {
-        var redirect = sessionStorage.getItem('redirect');
-        if (redirect && redirect !== location.href) {
-          sessionStorage.removeItem('redirect');
-          history.replaceState(null, null, redirect);
+      // Single Page Apps para GitHub Pages
+      // https://github.com/rafgraph/spa-github-pages
+      // Converte hash fragments de volta para path normal
+      (function(l) {
+        if (l.search[1] === '/' ) {
+          var decoded = l.search.slice(1).split('&').map(function(s) { 
+            return s.replace(/~and~/g, '&')
+          }).join('?');
+          window.history.replaceState(null, null,
+            l.pathname.slice(0, -1) + decoded + l.hash
+          );
         }
-      })();
+      }(window.location))
     </script>
     
     <title>NETIPFLIX - Streaming de TV e Filmes</title>
