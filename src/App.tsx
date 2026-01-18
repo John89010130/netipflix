@@ -3,7 +3,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { HashRouter, Routes, Route } from "react-router-dom";
+import { HashRouter, Routes, Route, useLocation } from "react-router-dom";
 import { AuthProvider } from "./contexts/AuthContext";
 import { SessionProvider } from "./contexts/SessionContext";
 import ProtectedRoute from "./components/ProtectedRoute";
@@ -14,6 +14,20 @@ import { useTVNavigation, tvFocusStyles } from "./hooks/useTVNavigation";
 import Index from "./pages/Index";
 import Login from "./pages/Login";
 import QRLogin from "./pages/QRLogin";
+
+// Componente para logar rotas
+const RouteLogger = () => {
+  const location = useLocation();
+  
+  useEffect(() => {
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log('📍 ROTA ATUAL:', location.pathname);
+    console.log('🔍 Search:', location.search);
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  }, [location]);
+  
+  return null;
+};
 import ProfileSelect from "./pages/ProfileSelect";
 import ProfileManage from "./pages/ProfileManage";
 import TV from "./pages/TV";
@@ -58,6 +72,7 @@ const App = () => (
           <Toaster />
           <Sonner />
           <HashRouter>
+            <RouteLogger />
             <TestProgressWidget />
             <SupportChat />
             <SessionLimitModal />
