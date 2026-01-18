@@ -4,6 +4,19 @@
     <meta charset="UTF-8" />
     <!-- Cache bust: v2026.01.08 -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    
+    <!-- SPA Redirect Script (para GitHub Pages) -->
+    <script>
+      // Restaura a URL original salva pelo 404.html
+      (function() {
+        var redirect = sessionStorage.getItem('redirect');
+        if (redirect && redirect !== location.href) {
+          sessionStorage.removeItem('redirect');
+          history.replaceState(null, null, redirect);
+        }
+      })();
+    </script>
+    
     <title>NETIPFLIX - Streaming de TV e Filmes</title>
     <meta name="description" content="NETIPFLIX - Sua plataforma de streaming com TV ao vivo e os melhores filmes. Assista onde quiser, quando quiser." />
     <meta name="keywords" content="streaming, TV ao vivo, filmes, séries, IPTV, entretenimento" />
