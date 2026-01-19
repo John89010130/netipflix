@@ -20,6 +20,33 @@
           );
         }
       }(window.location))
+      
+      // PROTEÇÃO QR LOGIN - Executa ANTES de qualquer coisa
+      (function() {
+        var url = window.location.href;
+        var hash = window.location.hash;
+        
+        console.log('🔒 [HTML] Verificando URL:', url);
+        console.log('🔒 [HTML] Hash:', hash);
+        
+        // Se tem token de QR na URL mas não está em /qr-login, forçar
+        if (url.indexOf('token=qr_') !== -1) {
+          console.log('🔒 [HTML] Token QR detectado!');
+          
+          // Extrair o token
+          var tokenMatch = url.match(/token=(qr_[^&]+)/);
+          if (tokenMatch) {
+            var token = tokenMatch[1];
+            var correctHash = '#/qr-login?token=' + token;
+            
+            // Se não está no hash correto, redirecionar
+            if (hash.indexOf('/qr-login') === -1) {
+              console.log('🔒 [HTML] FORÇANDO REDIRECT PARA:', correctHash);
+              window.location.hash = correctHash;
+            }
+          }
+        }
+      })();
     </script>
     
     <title>NETIPFLIX - Streaming de TV e Filmes</title>
