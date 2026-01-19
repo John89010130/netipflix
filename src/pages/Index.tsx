@@ -73,6 +73,8 @@ const Index = () => {
       if (!user?.id) return;
 
       try {
+        console.log('🔍 Buscando histórico para user:', user.id, user.email);
+        
         // Fetch watch history
         const { data: historyData, error: historyError } = await supabase
           .from('watch_history')
@@ -85,6 +87,8 @@ const Index = () => {
           console.error('Error fetching watch history:', historyError);
           return;
         }
+
+        console.log('📊 Histórico encontrado:', historyData?.length, 'itens');
 
         if (!historyData || historyData.length === 0) return;
 
