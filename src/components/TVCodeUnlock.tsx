@@ -72,14 +72,14 @@ export const TVCodeUnlock = () => {
       }
 
       setSuccess(true);
-      toast.success('TV autorizada com sucesso!');
+      toast.success('TV autorizada! A TV vai fazer login automaticamente.');
       
       // Fechar após 2 segundos
       setTimeout(() => {
         setIsOpen(false);
         setCode('');
         setSuccess(false);
-      }, 2000);
+      }, 2500);
 
     } catch (error) {
       toast.error('Erro ao processar');
