@@ -1,24 +1,20 @@
 import { useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
-import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Loader2, Tv, X, Check } from 'lucide-react';
 import { toast } from 'sonner';
 
 export const TVCodeUnlock = () => {
-  const { user } = useAuth();
+  const location = useLocation();
   const [isOpen, setIsOpen] = useState(false);
   const [code, setCode] = useState('');
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
 
-  // Debug
-  console.log('TVCodeUnlock - user:', user?.email);
-
-  // Só mostra se o usuário estiver logado
-  if (!user) {
-    console.log('TVCodeUnlock - sem user, não exibindo');
+  // Não mostra na página de login ou code
+  if (location.pathname === '/login' || location.pathname === '/code') {
     return null;
   }
 
@@ -65,8 +61,6 @@ export const TVCodeUnlock = () => {
         .from('tv_login_codes' as any)
         .update({
           used: true,
-          user_id: user.id,
-          email: user.email,
           used_at: new Date().toISOString()
         })
         .eq('code', code.toUpperCase());
