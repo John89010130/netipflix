@@ -3,7 +3,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { HashRouter, Routes, Route, useLocation } from "react-router-dom";
+import { HashRouter, Routes, Route, useLocation, useNavigate } from "react-router-dom";
 import { AuthProvider } from "./contexts/AuthContext";
 import { SessionProvider } from "./contexts/SessionContext";
 import ProtectedRoute from "./components/ProtectedRoute";
@@ -18,13 +18,28 @@ import QRLogin from "./pages/QRLogin";
 // Componente para logar rotas
 const RouteLogger = () => {
   const location = useLocation();
+  const navigate = useNavigate();
   
   useEffect(() => {
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     console.log('📍 ROTA ATUAL:', location.pathname);
     console.log('🔍 Search:', location.search);
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-  }, [location]);
+    
+    // PROTEÇÃO: Se tentou ir para /login mas tem token de QR, voltar para /qr-login
+    const fullUrl = window.location.href;
+    const hasQRToken = fullUrl.includes('qr-login') || fullUrl.includes('token=qr_');
+    
+    if (location.pathname === '/login' && hasQRToken) {
+      console.log('🚨 BLOQUEANDO REDIRECT PARA /login! Tem QR token na URL!');
+      const tokenMatch = fullUrl.match(/token=(qr_[^&]+)/);
+      if (tokenMatch) {
+        const token = tokenMatch[1];
+        console.log('✅ Redirecionando para /qr-login com token:', token);
+        navigate(`/qr-login?token=${token}`, { replace: true });
+      }
+    }
+  }, [location, navigate]);
   
   return null;
 };

@@ -25,7 +25,15 @@ const QRLogin = () => {
     console.log('URL:', window.location.href);
     console.log('Hash:', window.location.hash);
     console.log('Search:', window.location.search);
+    console.log('Pathname:', window.location.pathname);
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    
+    // FORÇAR permanecer nesta página (anti-redirect)
+    const currentPath = window.location.hash;
+    if (!currentPath.includes('/qr-login')) {
+      console.log('⚠️ DETECTADO REDIRECT! Forçando volta para /qr-login');
+      window.location.hash = '#/qr-login' + window.location.search;
+    }
   }, []);
 
   useEffect(() => {
