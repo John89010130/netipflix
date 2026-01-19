@@ -7,8 +7,9 @@ import fs from "fs";
 
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => {
-  // Com domínio personalizado no GitHub Pages, base deve ser '/'
-  const base = '/';
+  // Para GitHub Pages de projeto (não username.github.io), usar /nome-repo/
+  // URL final: https://john89010130.github.io/netipflix/
+  const base = '/netipflix/';
   
   return {
     base,
