@@ -10,8 +10,10 @@ export const TVCodeUnlock = () => {
   const location = useLocation();
   const [isOpen, setIsOpen] = useState(false);
   const [code, setCode] = useState('');
+  const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
+  const [step, setStep] = useState<'code' | 'password'>('code');
 
   // Não mostra na página de login ou code
   if (location.pathname === '/login' || location.pathname === '/code') {
@@ -56,11 +58,53 @@ export const TVCodeUnlock = () => {
         return;
       }
 
-      // Atualizar o código com os dados do usuário logado
+      // Código válido, pedir senha
+      setStep('password');
+      setLoading(false);
+
+    } catch (error) {
+      toast.error('Erro ao verificar código');
+      setLoading(false);
+    }
+  };
+
+  const handleConfirm = async () => {
+    if (!password) {
+      toast.error('Digite sua senha');
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      // Pegar usuário atual
+      const { data: { user } } = await supabase.auth.getUser();
+      
+      if (!user?.email) {
+        toast.error('Usuário não encontrado');
+        setLoading(false);
+        return;
+      }
+
+      // Verificar senha fazendo um sign in
+      const { error: authError } = await supabase.auth.signInWithPassword({
+        email: user.email,
+        password: password
+      });
+
+      if (authError) {
+        toast.error('Senha incorreta');
+        setLoading(false);
+        return;
+      }
+
+      // Atualizar o código com os dados do usuário
       const { error: updateError } = await supabase
         .from('tv_login_codes' as any)
         .update({
           used: true,
+          email: user.email,
+          temp_password: password,
           used_at: new Date().toISOString()
         })
         .eq('code', code.toUpperCase());
@@ -78,7 +122,9 @@ export const TVCodeUnlock = () => {
       setTimeout(() => {
         setIsOpen(false);
         setCode('');
+        setPassword('');
         setSuccess(false);
+        setStep('code');
       }, 2500);
 
     } catch (error) {
@@ -110,7 +156,7 @@ export const TVCodeUnlock = () => {
                 Conectar TV
               </h2>
               <button 
-                onClick={() => { setIsOpen(false); setCode(''); setSuccess(false); }}
+                onClick={() => { setIsOpen(false); setCode(''); setPassword(''); setSuccess(false); setStep('code'); }}
                 className="text-muted-foreground hover:text-foreground"
               >
                 <X className="h-5 w-5" />
@@ -126,8 +172,8 @@ export const TVCodeUnlock = () => {
                 <p className="text-lg font-medium">TV Conectada!</p>
                 <p className="text-sm text-muted-foreground">A TV já está logando...</p>
               </div>
-            ) : (
-              // Formulário
+            ) : step === 'code' ? (
+              // Formulário do Código
               <>
                 <p className="text-sm text-muted-foreground mb-4">
                   Digite o código de 6 caracteres que aparece na TV
@@ -152,11 +198,55 @@ export const TVCodeUnlock = () => {
                 >
                   {loading ? (
                     <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                  ) : (
-                    <Tv className="h-4 w-4 mr-2" />
-                  )}
-                  Conectar TV
+                  ) : null}
+                  Continuar
                 </Button>
+              </>
+            ) : (
+              // Formulário da Senha
+              <>
+                <div className="bg-muted/50 p-3 rounded-lg text-center mb-4">
+                  <span className="text-sm text-muted-foreground">Código: </span>
+                  <span className="font-mono font-bold text-primary">{code}</span>
+                </div>
+
+                <p className="text-sm text-muted-foreground mb-4">
+                  Digite sua senha para autorizar a TV
+                </p>
+
+                <Input
+                  type="password"
+                  placeholder="••••••••"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="mb-4"
+                  disabled={loading}
+                  autoFocus
+                  onKeyDown={(e) => e.key === 'Enter' && password && handleConfirm()}
+                />
+
+                <div className="flex gap-2">
+                  <Button 
+                    onClick={() => { setStep('code'); setPassword(''); }} 
+                    variant="outline"
+                    className="flex-1"
+                    disabled={loading}
+                  >
+                    Voltar
+                  </Button>
+                  <Button 
+                    onClick={handleConfirm} 
+                    className="flex-1" 
+                    disabled={loading || !password}
+                  >
+                    {loading ? (
+                      <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                    ) : (
+                      <Tv className="h-4 w-4 mr-2" />
+                    )}
+                    Conectar TV
+                  </Button>
+                </div>
               </>
             )}
           </div>
