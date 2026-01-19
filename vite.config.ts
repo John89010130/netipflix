@@ -7,8 +7,8 @@ import fs from "fs";
 
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => {
-  // Em produção usa /netipflix/ para GitHub Pages, em dev usa /
-  const base = mode === 'production' ? '/netipflix/' : '/';
+  // Sempre usa / (funciona tanto no domínio customizado quanto no GitHub Pages)
+  const base = '/';
   
   return {
     base,
