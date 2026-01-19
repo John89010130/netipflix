@@ -15,6 +15,31 @@ import Index from "./pages/Index";
 import Login from "./pages/Login";
 import QRLogin from "./pages/QRLogin";
 
+// GUARD GLOBAL: Verifica se tem token QR na URL e força a rota correta
+// Isso roda ANTES de qualquer coisa do React
+(function() {
+  const url = window.location.href;
+  const hash = window.location.hash;
+  
+  console.log('🛡️ [GUARD GLOBAL] URL:', url);
+  console.log('🛡️ [GUARD GLOBAL] Hash:', hash);
+  
+  // Se tem token QR mas não está na rota correta, forçar
+  if (url.includes('token=qr_')) {
+    const tokenMatch = url.match(/token=(qr_[^&\s#]+)/);
+    if (tokenMatch) {
+      const token = tokenMatch[1];
+      const correctHash = `#/qr-login?token=${token}`;
+      
+      // Verificar se já está na rota correta
+      if (!hash.includes('/qr-login?token=')) {
+        console.log('🛡️ [GUARD GLOBAL] Forçando redirect para:', correctHash);
+        window.location.hash = correctHash;
+      }
+    }
+  }
+})();
+
 // Componente para logar rotas
 const RouteLogger = () => {
   const location = useLocation();

@@ -2,51 +2,59 @@
 <html lang="pt-BR" class="dark">
   <head>
     <meta charset="UTF-8" />
-    <!-- Cache bust: v2026.01.08 -->
+    <!-- Cache bust: v2026.01.18b - QR Login Fix -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     
-    <!-- SPA Redirect Script (para GitHub Pages com HashRouter) -->
+    <!-- QR LOGIN GUARD - EXECUTA PRIMEIRO, ANTES DE TUDO! -->
     <script>
-      // Processamento de URL para SPA com HashRouter
+      // Este script DEVE rodar antes de qualquer coisa
       (function() {
-        var l = window.location;
-        var url = l.href;
-        var hash = l.hash;
-        var search = l.search;
-        var path = l.pathname;
+        var url = window.location.href;
+        var hash = window.location.hash;
         
-        console.log('🔒 [HTML] URL:', url);
-        console.log('🔒 [HTML] Path:', path);
-        console.log('🔒 [HTML] Search:', search);
-        console.log('🔒 [HTML] Hash:', hash);
+        console.log('🛡️ [QR-GUARD] Verificando URL:', url);
         
-        // PRIORIDADE 1: Se tem token de QR na URL (em qualquer lugar), garantir que vai para /qr-login
-        if (url.indexOf('token=qr_') !== -1) {
-          console.log('🔒 [HTML] Token QR detectado!');
+        // Detectar token QR em qualquer parte da URL
+        var hasQRToken = url.indexOf('token=qr_') !== -1;
+        
+        if (hasQRToken) {
+          console.log('🛡️ [QR-GUARD] TOKEN QR DETECTADO!');
           
-          // Extrair o token de qualquer lugar da URL
+          // Extrair o token
           var tokenMatch = url.match(/token=(qr_[^&\s#]+)/);
           if (tokenMatch) {
             var token = tokenMatch[1];
-            var correctHash = '#/qr-login?token=' + token;
+            var targetHash = '#/qr-login?token=' + token;
             
-            // Se não está exatamente no hash correto, forçar
-            if (hash !== correctHash && !hash.includes('/qr-login?token=' + token)) {
-              console.log('🔒 [HTML] FORÇANDO REDIRECT PARA:', correctHash);
-              // Usar replace para não criar histórico
-              l.replace(l.protocol + '//' + l.hostname + (l.port ? ':' + l.port : '') + '/' + correctHash);
-              return;
+            console.log('🛡️ [QR-GUARD] Token:', token);
+            console.log('🛡️ [QR-GUARD] Hash atual:', hash);
+            console.log('🛡️ [QR-GUARD] Hash alvo:', targetHash);
+            
+            // Se não está no hash correto, PARAR TUDO e redirecionar
+            if (hash !== targetHash) {
+              console.log('🛡️ [QR-GUARD] REDIRECIONANDO AGORA!');
+              
+              // Usar location.replace para substituir sem histórico
+              var baseUrl = window.location.protocol + '//' + window.location.host + '/';
+              window.location.replace(baseUrl + targetHash);
+              
+              // Impedir qualquer execução adicional
+              throw new Error('QR-GUARD: Redirecionando para QR Login');
+            } else {
+              console.log('🛡️ [QR-GUARD] Já está na rota correta!');
             }
           }
         }
         
-        // PRIORIDADE 2: Se o path não é / (ou seja, veio do 404.html ou link direto)
-        // e não tem hash, converter path para hash
+        // Se veio de uma rota direta (não tem hash mas tem path), converter para hash
+        var path = window.location.pathname;
         if (path !== '/' && path.length > 1 && (!hash || hash === '#' || hash === '#/')) {
+          var search = window.location.search;
           var newHash = '#' + path + search;
-          console.log('🔒 [HTML] Convertendo path para hash:', newHash);
-          l.replace(l.protocol + '//' + l.hostname + (l.port ? ':' + l.port : '') + '/' + newHash);
-          return;
+          console.log('🛡️ [QR-GUARD] Convertendo path para hash:', newHash);
+          var baseUrl = window.location.protocol + '//' + window.location.host + '/';
+          window.location.replace(baseUrl + newHash);
+          throw new Error('QR-GUARD: Convertendo path para hash');
         }
       })();
     </script>
