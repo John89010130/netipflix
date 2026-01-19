@@ -16,20 +16,20 @@ const MyList = () => {
 
   useEffect(() => {
     loadFavorites();
-  }, [user?.id]);
+  }, [user?.email]);
 
   const loadFavorites = async () => {
-    if (!user?.id) {
+    if (!user?.email) {
       setLoading(false);
       return;
     }
 
     try {
-      // Buscar IDs dos favoritos
+      // Buscar IDs dos favoritos por email (sincroniza entre dispositivos)
       const { data: favData, error: favError } = await supabase
         .from('favorites')
         .select('content_id, content_type')
-        .eq('user_id', user.id);
+        .eq('email', user.email);
 
       if (favError) throw favError;
 

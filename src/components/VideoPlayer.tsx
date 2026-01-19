@@ -397,6 +397,7 @@ export const VideoPlayer = ({ src, title, poster, contentId, contentType, onClos
           .from('watch_history')
           .upsert({
             user_id: user.id,
+            email: user.email,
             content_id: contentId,
             content_type: contentType || 'MOVIE',
             watched_at: new Date().toISOString(),
@@ -424,13 +425,14 @@ export const VideoPlayer = ({ src, title, poster, contentId, contentType, onClos
   // Save watch history when video starts playing
   useEffect(() => {
     const saveWatchHistory = async () => {
-      if (!user?.id || !contentId || historySaved) return;
+      if (!user?.email || !contentId || historySaved) return;
       
       try {
         await supabase
           .from('watch_history')
           .upsert({
             user_id: user.id,
+            email: user.email,
             content_id: contentId,
             content_type: contentType || 'MOVIE',
             watched_at: new Date().toISOString(),

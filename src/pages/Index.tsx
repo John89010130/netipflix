@@ -73,13 +73,13 @@ const Index = () => {
       if (!user?.id) return;
 
       try {
-        console.log('🔍 Buscando histórico para user:', user.id, user.email);
+        console.log('🔍 Buscando histórico para email:', user.email);
         
-        // Fetch watch history
+        // Fetch watch history by email (sincroniza entre dispositivos)
         const { data: historyData, error: historyError } = await supabase
           .from('watch_history')
           .select('content_id, content_type, watched_at, progress')
-          .eq('user_id', user.id)
+          .eq('email', user.email)
           .order('watched_at', { ascending: false })
           .limit(20);
 
