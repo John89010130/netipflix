@@ -13,8 +13,14 @@ export const TVCodeUnlock = () => {
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
 
+  // Debug
+  console.log('TVCodeUnlock - user:', user?.email);
+
   // Só mostra se o usuário estiver logado
-  if (!user) return null;
+  if (!user) {
+    console.log('TVCodeUnlock - sem user, não exibindo');
+    return null;
+  }
 
   const handleUnlock = async () => {
     if (code.length !== 6) {
@@ -93,10 +99,10 @@ export const TVCodeUnlock = () => {
       {/* Botão flutuante */}
       <button
         onClick={() => setIsOpen(true)}
-        className="fixed bottom-20 right-4 z-40 bg-primary hover:bg-primary/90 text-primary-foreground p-3 rounded-full shadow-lg transition-all hover:scale-110"
+        className="fixed bottom-24 right-6 z-[9999] bg-red-600 hover:bg-red-700 text-white p-4 rounded-full shadow-2xl transition-all hover:scale-110 border-2 border-white"
         title="Conectar TV"
       >
-        <Tv className="h-6 w-6" />
+        <Tv className="h-7 w-7" />
       </button>
 
       {/* Modal */}
