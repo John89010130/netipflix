@@ -887,63 +887,143 @@ export const VideoPlayer = ({ src, title, poster, contentId, contentType, onClos
     if (!video) return;
 
     try {
-      // Método 1: Remote Playback API (Chromecast nativo)
-      if ((video as any).remote && (video as any).remote.watchAvailability) {
+      // Método 1: Remote Playback API (funciona em Chrome, Edge, Samsung Internet)
+      // Suporta: Chromecast, Samsung Smart TV, LG Smart TV, DLNA
+      if ((video as any).remote) {
         const remote = (video as any).remote;
-        const available = await remote.watchAvailability((availability: boolean) => {
-          console.log('Cast available:', availability);
-        });
         
-        if (available) {
+        try {
+          // Prompt mostra dispositivos disponíveis na rede (Chromecast, Smart TVs, etc)
           await remote.prompt();
-          toast.success('Conectando ao dispositivo...');
-          setIsCasting(true);
+          
+          // Aguardar conexão
+          remote.addEventListener('connecting', () => {
+            toast.info('Conectando ao dispositivo...');
+          });
+          
+          remote.addEventListener('connect', () => {
+            toast.success('Transmitindo para a TV!');
+            setIsCasting(true);
+          });
+          
+          remote.addEventListener('disconnect', () => {
+            toast.info('Transmissão encerrada');
+            setIsCasting(false);
+          });
+          
           return;
+        } catch (e: any) {
+          console.log('Remote playback error:', e);
+          // Continuar tentando outros métodos
         }
       }
 
-      // Método 2: Presentation API (mais universal)
+      // Método 2: Google Cast API (Chromecast dedicado)
+      if ((window as any).chrome?.cast?.isAvailable) {
+        const cast = (window as any).chrome.cast;
+        const sessionRequest = new cast.SessionRequest(cast.media.DEFAULT_MEDIA_RECEIVER_APP_ID);
+        const apiConfig = new cast.ApiConfig(
+          sessionRequest,
+          (session: any) => {
+            const mediaInfo = new cast.media.MediaInfo(src, 'video/mp4');
+            mediaInfo.metadata = new cast.media.GenericMediaMetadata();
+            mediaInfo.metadata.title = title || 'Vídeo';
+            
+            const request = new cast.media.LoadRequest(mediaInfo);
+            session.loadMedia(request).then(
+              () => {
+                toast.success('Transmitindo para Chromecast!');
+                setIsCasting(true);
+              },
+              (err: any) => {
+                console.error('Load media error:', err);
+                throw err;
+              }
+            );
+          },
+          (status: any) => console.log('Cast status:', status)
+        );
+        
+        cast.initialize(apiConfig, () => {
+          cast.requestSession(
+            (session: any) => console.log('Chromecast session:', session),
+            (err: any) => {
+              console.log('Chromecast failed:', err);
+              throw err;
+            }
+          );
+        });
+        return;
+      }
+
+      // Método 3: Presentation API (Samsung Tizen, LG webOS, FireTV)
       if ('PresentationRequest' in window) {
-        const presentationUrl = window.location.origin + window.location.pathname + '?cast=true&url=' + encodeURIComponent(src);
+        const presentationUrl = `${window.location.origin}/#/cast?url=${encodeURIComponent(src)}&title=${encodeURIComponent(title || 'Vídeo')}`;
         const presentation = new (window as any).PresentationRequest([presentationUrl]);
         
         try {
           const connection = await presentation.start();
-          toast.success('Conectado via Presentation API!');
+          console.log('Presentation connection:', connection);
+          toast.success('Transmitindo para Smart TV!');
           setIsCasting(true);
+          
+          connection.addEventListener('close', () => {
+            toast.info('Transmissão encerrada');
+            setIsCasting(false);
+          });
+          
           return;
-        } catch (e) {
-          console.log('Presentation API failed:', e);
+        } catch (e: any) {
+          if (e.name !== 'NotSupportedError') {
+            console.log('Presentation API failed:', e);
+          }
         }
       }
 
-      // Método 3: Web Share API com vídeo
-      if (navigator.share && navigator.canShare) {
+      // Método 4: DLNA Share (Android para Smart TVs)
+      if (navigator.share) {
         try {
+          // No Android, o share pode abrir apps DLNA/UPnP
           await navigator.share({
-            title: title || 'Assistir',
-            text: 'Assista este vídeo',
+            title: title || 'Assistir vídeo',
+            text: 'Transmitir para TV',
             url: src
           });
-          toast.success('Compartilhado com sucesso!');
+          toast.info('Selecione sua TV ou app de transmissão');
           return;
-        } catch (e) {
-          console.log('Share failed:', e);
+        } catch (e: any) {
+          if (e.name !== 'AbortError') {
+            console.log('Share failed:', e);
+          }
         }
       }
 
-      // Fallback: Copiar link e mostrar instruções
+      // Método 5: Web Share Target (PWA)
+      if ('shareTarget' in (navigator as any)) {
+        try {
+          await (navigator as any).shareTarget({
+            url: src,
+            title: title || 'Vídeo'
+          });
+          toast.success('Compartilhado com dispositivo!');
+          return;
+        } catch (e) {
+          console.log('Share Target failed:', e);
+        }
+      }
+
+      // Fallback: Copiar link com instruções
       await navigator.clipboard.writeText(src);
-      toast.success('Link copiado! Cole no seu player favorito (VLC, MX Player, etc)');
+      toast.info('Nenhuma TV detectada na rede. Link copiado! \n\nPara Smart TVs:\n• Samsung: abra o navegador da TV e cole o link\n• LG: use o app Web Browser\n• Outras: use apps DLNA como BubbleUPnP, AllCast');
       
     } catch (err) {
       console.error('Cast error:', err);
-      // Último fallback: apenas copiar URL
+      // Último fallback
       try {
         await navigator.clipboard.writeText(src);
-        toast.info('Link copiado! Use em outro dispositivo ou app de streaming');
+        toast.info('Link copiado! Cole no navegador da sua Smart TV ou use apps como:\n• AllCast\n• BubbleUPnP\n• Web Video Cast\n• LocalCast');
       } catch {
-        toast.error('Não foi possível espelhar. Tente um player externo.');
+        toast.error('Não foi possível transmitir ou copiar o link.');
       }
     }
   };
