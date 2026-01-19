@@ -3,7 +3,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { HashRouter, Routes, Route, useLocation, useNavigate } from "react-router-dom";
+import { HashRouter, Routes, Route } from "react-router-dom";
 import { AuthProvider } from "./contexts/AuthContext";
 import { SessionProvider } from "./contexts/SessionContext";
 import ProtectedRoute from "./components/ProtectedRoute";
@@ -13,68 +13,9 @@ import { SessionLimitModal } from "./components/SessionLimitModal";
 import { useTVNavigation, tvFocusStyles } from "./hooks/useTVNavigation";
 import Index from "./pages/Index";
 import Login from "./pages/Login";
-import QRLogin from "./pages/QRLogin";
+import CodeLogin from "./pages/CodeLogin";
 
-// GUARD GLOBAL: Verifica se tem token QR na URL e força a rota correta
-// Isso roda ANTES de qualquer coisa do React
-(function() {
-  const url = window.location.href;
-  const hash = window.location.hash;
-  
-  console.log('🛡️ [GUARD GLOBAL] URL:', url);
-  console.log('🛡️ [GUARD GLOBAL] Hash:', hash);
-  
-  // Se tem token QR mas não está na rota correta, forçar
-  if (url.includes('token=qr_')) {
-    const tokenMatch = url.match(/token=(qr_[^&\s#]+)/);
-    if (tokenMatch) {
-      const token = tokenMatch[1];
-      const correctHash = `#/qr-login?token=${token}`;
-      
-      // Verificar se já está na rota correta
-      if (!hash.includes('/qr-login?token=')) {
-        console.log('🛡️ [GUARD GLOBAL] Forçando redirect para:', correctHash);
-        window.location.hash = correctHash;
-      }
-    }
-  }
-})();
-
-// Componente para logar rotas
-const RouteLogger = () => {
-  const location = useLocation();
-  const navigate = useNavigate();
-  
-  useEffect(() => {
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('📍 ROTA ATUAL:', location.pathname);
-    console.log('🔍 Search:', location.search);
-    console.log('🌐 URL Completa:', window.location.href);
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    
-    // Se estamos em /qr-login, NÃO fazer nenhum redirect
-    if (location.pathname === '/qr-login') {
-      console.log('✅ Estamos em /qr-login - mantendo rota');
-      return;
-    }
-    
-    // PROTEÇÃO: Se tentou ir para /login mas tem token de QR, voltar para /qr-login
-    const fullUrl = window.location.href;
-    const hasQRToken = fullUrl.includes('token=qr_');
-    
-    if (location.pathname === '/login' && hasQRToken) {
-      console.log('🚨 BLOQUEANDO REDIRECT PARA /login! Tem QR token na URL!');
-      const tokenMatch = fullUrl.match(/token=(qr_[^&\s#]+)/);
-      if (tokenMatch) {
-        const token = tokenMatch[1];
-        console.log('✅ Redirecionando para /qr-login com token:', token);
-        navigate(`/qr-login?token=${token}`, { replace: true });
-      }
-    }
-  }, [location, navigate]);
-  
-  return null;
-};
+import CodeLogin from "./pages/CodeLogin";
 import ProfileSelect from "./pages/ProfileSelect";
 import ProfileManage from "./pages/ProfileManage";
 import TV from "./pages/TV";
@@ -119,13 +60,12 @@ const App = () => (
           <Toaster />
           <Sonner />
           <HashRouter>
-            <RouteLogger />
             <TestProgressWidget />
             <SupportChat />
             <SessionLimitModal />
             <Routes>
               <Route path="/login" element={<Login />} />
-              <Route path="/qr-login" element={<QRLogin />} />
+              <Route path="/code" element={<CodeLogin />} />
               <Route
                 path="/profiles"
                 element={

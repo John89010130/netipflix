@@ -2,10 +2,10 @@ import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Eye, EyeOff, Mail, Lock, User, QrCode } from 'lucide-react';
+import { Eye, EyeOff, Mail, Lock, User, Tv } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'sonner';
-import { QRCodeLogin } from '@/components/QRCodeLogin';
+import { TVCodeLogin } from '@/components/TVCodeLogin';
 
 const Login = () => {
   const [email, setEmail] = useState('');
@@ -14,7 +14,7 @@ const Login = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isSignUp, setIsSignUp] = useState(false);
-  const [showQRCode, setShowQRCode] = useState(false);
+  const [showTVCode, setShowTVCode] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
   const { signIn, signUp, user } = useAuth();
@@ -89,22 +89,22 @@ const Login = () => {
         </h1>
       </div>
 
-      {/* Login Form or QR Code */}
+      {/* Login Form */}
       <div className="relative z-10 w-full max-w-md mx-4">
         <div className="bg-card/90 backdrop-blur-xl rounded-lg p-8 md:p-12 shadow-2xl border border-border/50">
           <h2 className="font-display text-3xl md:text-4xl mb-8 tracking-wide">
-            {showQRCode ? 'Login Rápido' : (isSignUp ? 'Criar Conta' : 'Entrar')}
+            {showTVCode ? 'Login na TV' : (isSignUp ? 'Criar Conta' : 'Entrar')}
           </h2>
 
-          {showQRCode ? (
+          {showTVCode ? (
             <>
-              <QRCodeLogin />
+              <TVCodeLogin />
               <div className="mt-6 text-center">
                 <button
-                  onClick={() => setShowQRCode(false)}
+                  onClick={() => setShowTVCode(false)}
                   className="text-muted-foreground hover:text-foreground transition-colors"
                 >
-                  ← Voltar para login tradicional
+                  ← Voltar para login normal
                 </button>
               </div>
             </>
@@ -200,7 +200,7 @@ const Login = () => {
                 </button>
               </div>
 
-              {/* QR Code Login Button */}
+              {/* TV Login Button */}
               <div className="mt-6">
                 <div className="relative">
                   <div className="absolute inset-0 flex items-center">
@@ -215,14 +215,23 @@ const Login = () => {
                   type="button"
                   variant="outline"
                   className="w-full mt-4"
-                  onClick={() => setShowQRCode(true)}
+                  onClick={() => setShowTVCode(true)}
                 >
-                  <QrCode className="h-5 w-5 mr-2" />
-                  Login via QR Code
+                  <Tv className="h-5 w-5 mr-2" />
+                  Entrar na TV
                 </Button>
                 <p className="text-xs text-muted-foreground text-center mt-2">
-                  Ideal para TV/Projetor
+                  Gera um código para digitar no celular
                 </p>
+
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="w-full mt-2"
+                  onClick={() => navigate('/code')}
+                >
+                  Tenho um código
+                </Button>
               </div>
             </>
           )}
