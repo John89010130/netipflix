@@ -27,7 +27,7 @@ const CodeLogin = () => {
 
     try {
       const { data, error } = await supabase
-        .from('tv_login_codes')
+        .from('tv_login_codes' as any)
         .select('*')
         .eq('code', code.toUpperCase())
         .single();
@@ -90,7 +90,7 @@ const CodeLogin = () => {
 
       // Atualizar o código com as credenciais
       const { error: updateError } = await supabase
-        .from('tv_login_codes')
+        .from('tv_login_codes' as any)
         .update({
           used: true,
           user_id: authData.user.id,

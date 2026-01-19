@@ -7,9 +7,8 @@ import fs from "fs";
 
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => {
-  // Para GitHub Pages de projeto (não username.github.io), usar /nome-repo/
-  // URL final: https://john89010130.github.io/netipflix/
-  const base = '/netipflix/';
+  // Em produção usa /netipflix/ para GitHub Pages, em dev usa /
+  const base = mode === 'production' ? '/netipflix/' : '/';
   
   return {
     base,

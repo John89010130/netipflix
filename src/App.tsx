@@ -10,11 +10,10 @@ import ProtectedRoute from "./components/ProtectedRoute";
 import { TestProgressWidget } from "./components/TestProgressWidget";
 import { SupportChat } from "./components/SupportChat";
 import { SessionLimitModal } from "./components/SessionLimitModal";
+import { TVCodeUnlock } from "./components/TVCodeUnlock";
 import { useTVNavigation, tvFocusStyles } from "./hooks/useTVNavigation";
 import Index from "./pages/Index";
 import Login from "./pages/Login";
-import CodeLogin from "./pages/CodeLogin";
-
 import CodeLogin from "./pages/CodeLogin";
 import ProfileSelect from "./pages/ProfileSelect";
 import ProfileManage from "./pages/ProfileManage";
@@ -63,6 +62,7 @@ const App = () => (
             <TestProgressWidget />
             <SupportChat />
             <SessionLimitModal />
+            <TVCodeUnlock />
             <Routes>
               <Route path="/login" element={<Login />} />
               <Route path="/code" element={<CodeLogin />} />

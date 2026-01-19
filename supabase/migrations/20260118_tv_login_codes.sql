@@ -19,6 +19,11 @@ CREATE INDEX IF NOT EXISTS idx_tv_login_codes_code ON tv_login_codes(code);
 -- Habilitar RLS
 ALTER TABLE tv_login_codes ENABLE ROW LEVEL SECURITY;
 
+-- Remover políticas antigas se existirem
+DROP POLICY IF EXISTS "Qualquer um pode criar código" ON tv_login_codes;
+DROP POLICY IF EXISTS "Qualquer um pode ler código" ON tv_login_codes;
+DROP POLICY IF EXISTS "Qualquer um pode atualizar código" ON tv_login_codes;
+
 -- Políticas permissivas (qualquer um pode criar e ler)
 CREATE POLICY "Qualquer um pode criar código" ON tv_login_codes
   FOR INSERT WITH CHECK (true);
@@ -28,11 +33,3 @@ CREATE POLICY "Qualquer um pode ler código" ON tv_login_codes
 
 CREATE POLICY "Qualquer um pode atualizar código" ON tv_login_codes
   FOR UPDATE USING (true);
-
--- Limpar códigos expirados automaticamente (opcional)
--- CREATE OR REPLACE FUNCTION cleanup_expired_codes()
--- RETURNS void AS $$
--- BEGIN
---   DELETE FROM tv_login_codes WHERE expires_at < NOW() - INTERVAL '1 hour';
--- END;
--- $$ LANGUAGE plpgsql;

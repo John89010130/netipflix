@@ -30,7 +30,7 @@ export const TVCodeLogin = () => {
       expiresAt.setMinutes(expiresAt.getMinutes() + 10); // 10 minutos
       
       const { error } = await supabase
-        .from('tv_login_codes')
+        .from('tv_login_codes' as any)
         .insert({
           code: newCode,
           expires_at: expiresAt.toISOString(),
@@ -62,7 +62,7 @@ export const TVCodeLogin = () => {
   const checkCode = useCallback(async (codeValue: string) => {
     try {
       const { data, error } = await supabase
-        .from('tv_login_codes')
+        .from('tv_login_codes' as any)
         .select('*')
         .eq('code', codeValue)
         .single();
