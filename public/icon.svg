@@ -1,0 +1,16 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <!-- Fundo vermelho -->
+  <rect width="512" height="512" rx="128" fill="#DC2626"/>
+  
+  <!-- Ícone de TV branco -->
+  <g transform="translate(128, 128)">
+    <rect x="20" y="60" width="216" height="156" rx="12" fill="white"/>
+    <rect x="32" y="72" width="192" height="120" rx="4" fill="#DC2626"/>
+    <circle cx="44" cy="208" r="8" fill="white"/>
+    <circle cx="212" cy="208" r="8" fill="white"/>
+    <rect x="100" y="32" width="4" height="40" fill="white"/>
+    <rect x="152" y="32" width="4" height="40" fill="white"/>
+    <circle cx="102" cy="28" r="12" fill="white"/>
+    <circle cx="154" cy="28" r="12" fill="white"/>
+  </g>
+</svg>
