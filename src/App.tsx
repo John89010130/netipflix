@@ -24,15 +24,22 @@ const RouteLogger = () => {
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     console.log('📍 ROTA ATUAL:', location.pathname);
     console.log('🔍 Search:', location.search);
+    console.log('🌐 URL Completa:', window.location.href);
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    
+    // Se estamos em /qr-login, NÃO fazer nenhum redirect
+    if (location.pathname === '/qr-login') {
+      console.log('✅ Estamos em /qr-login - mantendo rota');
+      return;
+    }
     
     // PROTEÇÃO: Se tentou ir para /login mas tem token de QR, voltar para /qr-login
     const fullUrl = window.location.href;
-    const hasQRToken = fullUrl.includes('qr-login') || fullUrl.includes('token=qr_');
+    const hasQRToken = fullUrl.includes('token=qr_');
     
     if (location.pathname === '/login' && hasQRToken) {
       console.log('🚨 BLOQUEANDO REDIRECT PARA /login! Tem QR token na URL!');
-      const tokenMatch = fullUrl.match(/token=(qr_[^&]+)/);
+      const tokenMatch = fullUrl.match(/token=(qr_[^&\s#]+)/);
       if (tokenMatch) {
         const token = tokenMatch[1];
         console.log('✅ Redirecionando para /qr-login com token:', token);

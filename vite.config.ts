@@ -79,17 +79,29 @@ export default defineConfig(({ mode }) => {
           ]
         }
       }),
-      // Plugin para copiar index.html para 404.html (fix SPA routing no GitHub Pages)
+      // Plugin para garantir que 404.html existe (usa o do public se disponível)
       {
-        name: 'copy-index-to-404',
+        name: 'ensure-404-html',
         closeBundle() {
           const distPath = path.resolve(__dirname, 'dist');
-          const indexPath = path.join(distPath, 'index.html');
-          const notFoundPath = path.join(distPath, '404.html');
+          const publicPath = path.resolve(__dirname, 'public');
+          const notFoundDist = path.join(distPath, '404.html');
+          const notFoundPublic = path.join(publicPath, '404.html');
           
-          if (fs.existsSync(indexPath)) {
-            fs.copyFileSync(indexPath, notFoundPath);
-            console.log('✅ 404.html criado para SPA routing no GitHub Pages');
+          // Se o 404.html do public foi copiado, manter ele (tem lógica de redirect para HashRouter)
+          if (fs.existsSync(notFoundDist)) {
+            console.log('✅ 404.html do public/ já existe em dist/');
+          } else if (fs.existsSync(notFoundPublic)) {
+            // Copiar do public se não foi copiado automaticamente
+            fs.copyFileSync(notFoundPublic, notFoundDist);
+            console.log('✅ 404.html copiado do public/ para dist/');
+          } else {
+            // Fallback: copiar index.html se não houver 404.html customizado
+            const indexPath = path.join(distPath, 'index.html');
+            if (fs.existsSync(indexPath)) {
+              fs.copyFileSync(indexPath, notFoundDist);
+              console.log('✅ 404.html criado a partir do index.html');
+            }
           }
         }
       }

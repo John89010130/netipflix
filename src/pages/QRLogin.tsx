@@ -24,20 +24,46 @@ const QRLogin = () => {
     console.log('🚨🚨🚨 QRLogin.tsx MONTADO! 🚨🚨🚨');
     console.log('URL:', window.location.href);
     console.log('Hash:', window.location.hash);
-    console.log('Search:', window.location.search);
+    console.log('Search (window):', window.location.search);
     console.log('Pathname:', window.location.pathname);
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     
-    // FORÇAR permanecer nesta página (anti-redirect)
-    const currentPath = window.location.hash;
-    if (!currentPath.includes('/qr-login')) {
-      console.log('⚠️ DETECTADO REDIRECT! Forçando volta para /qr-login');
-      window.location.hash = '#/qr-login' + window.location.search;
+    // Tentar extrair token do hash também (para casos onde o router não parseou corretamente)
+    const hash = window.location.hash;
+    if (hash.includes('token=qr_')) {
+      const tokenMatch = hash.match(/token=(qr_[^&\s#]+)/);
+      if (tokenMatch && !searchParams.get('token')) {
+        console.log('🔧 Token encontrado no hash mas não no searchParams, extraindo:', tokenMatch[1]);
+        setToken(tokenMatch[1]);
+        validateToken(tokenMatch[1]);
+      }
     }
   }, []);
 
   useEffect(() => {
-    const tokenParam = searchParams.get('token');
+    // Tentar pegar o token de várias formas
+    let tokenParam = searchParams.get('token');
+    
+    // Se não achou no searchParams, tentar do hash completo
+    if (!tokenParam) {
+      const hash = window.location.hash;
+      const tokenMatch = hash.match(/token=(qr_[^&\s#]+)/);
+      if (tokenMatch) {
+        tokenParam = tokenMatch[1];
+        console.log('🔧 Token extraído do hash:', tokenParam);
+      }
+    }
+    
+    // Se ainda não achou, tentar da URL completa
+    if (!tokenParam) {
+      const fullUrl = window.location.href;
+      const tokenMatch = fullUrl.match(/token=(qr_[^&\s#]+)/);
+      if (tokenMatch) {
+        tokenParam = tokenMatch[1];
+        console.log('🔧 Token extraído da URL completa:', tokenParam);
+      }
+    }
+    
     const url = window.location.href;
     
     setDebugMessages(prev => [...prev, `🌐 URL: ${url}`]);
@@ -50,6 +76,7 @@ const QRLogin = () => {
     } else {
       setDebugMessages(prev => [...prev, `❌ ERRO: Token não encontrado na URL!`]);
       setDebugMessages(prev => [...prev, `Search params: ${searchParams.toString()}`]);
+      setDebugMessages(prev => [...prev, `Hash: ${window.location.hash}`]);
       setValidating(false);
       toast.error('Token inválido');
     }

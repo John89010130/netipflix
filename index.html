@@ -5,46 +5,48 @@
     <!-- Cache bust: v2026.01.08 -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     
-    <!-- SPA Redirect Script (para GitHub Pages) -->
+    <!-- SPA Redirect Script (para GitHub Pages com HashRouter) -->
     <script>
-      // Single Page Apps para GitHub Pages
-      // https://github.com/rafgraph/spa-github-pages
-      // Converte hash fragments de volta para path normal
-      (function(l) {
-        if (l.search[1] === '/' ) {
-          var decoded = l.search.slice(1).split('&').map(function(s) { 
-            return s.replace(/~and~/g, '&')
-          }).join('?');
-          window.history.replaceState(null, null,
-            l.pathname.slice(0, -1) + decoded + l.hash
-          );
-        }
-      }(window.location))
-      
-      // PROTEÇÃO QR LOGIN - Executa ANTES de qualquer coisa
+      // Processamento de URL para SPA com HashRouter
       (function() {
-        var url = window.location.href;
-        var hash = window.location.hash;
+        var l = window.location;
+        var url = l.href;
+        var hash = l.hash;
+        var search = l.search;
+        var path = l.pathname;
         
-        console.log('🔒 [HTML] Verificando URL:', url);
+        console.log('🔒 [HTML] URL:', url);
+        console.log('🔒 [HTML] Path:', path);
+        console.log('🔒 [HTML] Search:', search);
         console.log('🔒 [HTML] Hash:', hash);
         
-        // Se tem token de QR na URL mas não está em /qr-login, forçar
+        // PRIORIDADE 1: Se tem token de QR na URL (em qualquer lugar), garantir que vai para /qr-login
         if (url.indexOf('token=qr_') !== -1) {
           console.log('🔒 [HTML] Token QR detectado!');
           
-          // Extrair o token
-          var tokenMatch = url.match(/token=(qr_[^&]+)/);
+          // Extrair o token de qualquer lugar da URL
+          var tokenMatch = url.match(/token=(qr_[^&\s#]+)/);
           if (tokenMatch) {
             var token = tokenMatch[1];
             var correctHash = '#/qr-login?token=' + token;
             
-            // Se não está no hash correto, redirecionar
-            if (hash.indexOf('/qr-login') === -1) {
+            // Se não está exatamente no hash correto, forçar
+            if (hash !== correctHash && !hash.includes('/qr-login?token=' + token)) {
               console.log('🔒 [HTML] FORÇANDO REDIRECT PARA:', correctHash);
-              window.location.hash = correctHash;
+              // Usar replace para não criar histórico
+              l.replace(l.protocol + '//' + l.hostname + (l.port ? ':' + l.port : '') + '/' + correctHash);
+              return;
             }
           }
+        }
+        
+        // PRIORIDADE 2: Se o path não é / (ou seja, veio do 404.html ou link direto)
+        // e não tem hash, converter path para hash
+        if (path !== '/' && path.length > 1 && (!hash || hash === '#' || hash === '#/')) {
+          var newHash = '#' + path + search;
+          console.log('🔒 [HTML] Convertendo path para hash:', newHash);
+          l.replace(l.protocol + '//' + l.hostname + (l.port ? ':' + l.port : '') + '/' + newHash);
+          return;
         }
       })();
     </script>

@@ -4,21 +4,49 @@
     <meta charset="utf-8">
     <title>NETIPFLIX</title>
     <script>
-      // Single Page Apps para GitHub Pages
-      // https://github.com/rafgraph/spa-github-pages
-      // Converte o path e query string em hash fragments
-      var pathSegmentsToKeep = 0;
-      
-      var l = window.location;
-      l.replace(
-        l.protocol + '//' + l.hostname + (l.port ? ':' + l.port : '') +
-        l.pathname.split('/').slice(0, 1 + pathSegmentsToKeep).join('/') + '/?/' +
-        l.pathname.slice(1).split('/').slice(pathSegmentsToKeep).join('/').replace(/&/g, '~and~') +
-        (l.search ? '&' + l.search.slice(1).replace(/&/g, '~and~') : '') +
-        l.hash
-      );
+      // SPA Redirect para GitHub Pages com HashRouter
+      // Converte path normal em hash router format
+      (function() {
+        var l = window.location;
+        var path = l.pathname;
+        var search = l.search;
+        var hash = l.hash;
+        
+        console.log('[404.html] Path:', path);
+        console.log('[404.html] Search:', search);
+        console.log('[404.html] Hash:', hash);
+        
+        // Se já tem hash, só redirecionar para home mantendo o hash
+        if (hash && hash.length > 1) {
+          console.log('[404.html] Já tem hash, redirecionando para home com hash');
+          l.replace(l.protocol + '//' + l.hostname + (l.port ? ':' + l.port : '') + '/' + hash);
+          return;
+        }
+        
+        // Detectar se é uma rota conhecida
+        var knownRoutes = ['/qr-login', '/login', '/profiles', '/tv', '/movies', '/series', '/my-list', '/admin', '/install', '/search'];
+        var route = path.replace(/^\//, ''); // Remove leading slash
+        var isKnownRoute = knownRoutes.some(function(r) {
+          return path === r || path.startsWith(r + '?') || path.startsWith(r + '/');
+        });
+        
+        // Construir hash com path + search
+        var hashPath = path === '/' ? '' : path;
+        var newHash = '#' + hashPath + search;
+        
+        console.log('[404.html] Convertendo para hash:', newHash);
+        
+        // Redirecionar para home com hash
+        var newUrl = l.protocol + '//' + l.hostname + (l.port ? ':' + l.port : '') + '/' + newHash;
+        console.log('[404.html] Redirecionando para:', newUrl);
+        
+        l.replace(newUrl);
+      })();
     </script>
   </head>
   <body>
+    <div style="display:flex;justify-content:center;align-items:center;height:100vh;background:#0a0a0a;color:#fff;font-family:sans-serif;">
+      <p>Redirecionando...</p>
+    </div>
   </body>
 </html>
