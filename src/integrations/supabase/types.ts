@@ -611,6 +611,10 @@ export type Database = {
         }[]
       }
       unaccent: { Args: { "": string }; Returns: string }
+      verify_client_profile_pin: {
+        Args: { _pin: string; _profile_id: string }
+        Returns: boolean
+      }
     }
     Enums: {
       app_role: "ADMIN_MASTER" | "ADMIN" | "USER"
