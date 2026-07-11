@@ -219,7 +219,7 @@ export const VideoPlayer = ({ src, title, poster, contentId, contentType, onClos
   const hlsRef = useRef<Hls | null>(null);
   const mpegtsPlayerRef = useRef<any>(null);
   const lastSavedProgressRef = useRef<number>(0);
-  const progressSaveIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const progressSaveIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   
   const [isPlaying, setIsPlaying] = useState(autoPlay);
   const [isMuted, setIsMuted] = useState(false);
@@ -393,8 +393,8 @@ export const VideoPlayer = ({ src, title, poster, contentId, contentType, onClos
       lastSavedProgressRef.current = video.currentTime;
 
       try {
-        await supabase
-          .from('watch_history')
+        await (supabase
+          .from('watch_history') as any)
           .upsert({
             user_id: user.id,
             email: user.email,
@@ -428,8 +428,8 @@ export const VideoPlayer = ({ src, title, poster, contentId, contentType, onClos
       if (!user?.email || !contentId || historySaved) return;
       
       try {
-        await supabase
-          .from('watch_history')
+        await (supabase
+          .from('watch_history') as any)
           .upsert({
             user_id: user.id,
             email: user.email,
@@ -597,10 +597,10 @@ export const VideoPlayer = ({ src, title, poster, contentId, contentType, onClos
           fragLoadingMaxRetry: 2,
           manifestLoadingMaxRetry: 2,
           levelLoadingMaxRetry: 2,
-          manifestLoadTimeOut: 20000,
+          
           manifestLoadingTimeOut: 20000,
           manifestLoadingMaxRetryTimeout: 20000,
-          fragLoadTimeout: 20000,
+          fragLoadingTimeOut: 20000,
           xhrSetup: (xhr) => {
             xhr.timeout = 20000;
           },
@@ -729,7 +729,7 @@ export const VideoPlayer = ({ src, title, poster, contentId, contentType, onClos
   }, []);
 
   useEffect(() => {
-    let timeout: NodeJS.Timeout;
+    let timeout: ReturnType<typeof setTimeout>;
     const handleMouseMove = () => {
       setShowControls(true);
       clearTimeout(timeout);

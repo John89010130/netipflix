@@ -100,7 +100,7 @@ const TV = () => {
         const words = debouncedSearch.trim().split(/\s+/).filter(w => w.length > 0);
         
         // Tentar usar função RPC para busca otimizada no banco
-        const { data: rpcData, error: rpcError } = await supabase.rpc('search_tv_channels', {
+        const { data: rpcData, error: rpcError } = await (supabase.rpc as any)('search_tv_channels', {
           search_words: words,
           selected_category: selectedCategory !== 'Todos' && selectedCategory !== '🔞 Adulto' ? selectedCategory : null,
           max_results: MAX_RESULTS
@@ -108,7 +108,7 @@ const TV = () => {
 
         // Se RPC funcionar, usar os dados
         if (!rpcError && rpcData) {
-          allData = rpcData;
+          allData = rpcData as any[];
           console.log('✅ Busca via RPC:', allData.length, 'resultados');
         } else {
           // Fallback: busca tradicional no banco
