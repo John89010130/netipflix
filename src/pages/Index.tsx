@@ -76,8 +76,8 @@ const Index = () => {
         console.log('🔍 Buscando histórico para email:', user.email);
         
         // Fetch watch history by email (sincroniza entre dispositivos)
-        const { data: historyData, error: historyError } = await supabase
-          .from('watch_history')
+        const { data: historyData, error: historyError } = await (supabase
+          .from('watch_history') as any)
           .select('content_id, content_type, watched_at, progress')
           .eq('email', user.email)
           .order('watched_at', { ascending: false })

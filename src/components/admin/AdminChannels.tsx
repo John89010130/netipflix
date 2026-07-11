@@ -223,7 +223,7 @@ export const AdminChannels = ({ testJob, onStartTest, isTestRunning, onRefreshCh
       
       // Filtrar por todas as palavras do lado do cliente
       if (searchTerm.trim()) {
-        newChannels = filterByAllWords(newChannels, searchTerm, ['name', 'clean_title', 'category', 'series_title']);
+        newChannels = filterByAllWords(newChannels, searchTerm, ['name', 'clean_title', 'category', 'series_title'] as any);
       }
       
       if (reset) {

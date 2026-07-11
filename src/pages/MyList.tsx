@@ -26,8 +26,8 @@ const MyList = () => {
 
     try {
       // Buscar IDs dos favoritos por email (sincroniza entre dispositivos)
-      const { data: favData, error: favError } = await supabase
-        .from('favorites')
+      const { data: favData, error: favError } = await (supabase
+        .from('favorites') as any)
         .select('content_id, content_type')
         .eq('email', user.email);
 
@@ -72,19 +72,19 @@ const MyList = () => {
 
       // Buscar séries
       if (seriesIds.length > 0) {
-        const { data: series } = await supabase
-          .from('series')
+        const { data: series } = await (supabase
+          .from('series' as any) as any)
           .select('*')
           .in('id', seriesIds);
         
         if (series) {
-          allContent.push(...series.map((s: any) => ({
+          allContent.push(...(series as any[]).map((s: any) => ({
             id: s.id,
             title: s.name,
             poster_url: s.cover,
             backdrop_url: s.backdrop,
             category: s.category_name || 'Séries',
-            type: 'SERIES' as const,
+            type: 'SERIES' as any,
             stream_url: '',
             description: s.plot || '',
             year: s.year,
