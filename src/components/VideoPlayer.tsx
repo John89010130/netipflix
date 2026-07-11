@@ -163,7 +163,15 @@ const isCapacitorApp = (): boolean => {
   return false;
 };
 
-const getProxiedUrl = (url: string): string => {
+const getProxiedUrl = (inputUrl: string): string => {
+  // Desembrulhar qualquer URL que já esteja proxied (evita duplo-proxy)
+  let url = inputUrl;
+  for (let i = 0; i < 3; i++) {
+    const under = extractUnderlyingFromProxy(url);
+    if (!under) break;
+    url = under;
+  }
+
   // Se estiver rodando em HTTP (não HTTPS), nunca usar proxy!
   if (window.location.protocol === 'http:') {
     return url;
