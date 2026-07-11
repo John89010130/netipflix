@@ -600,7 +600,7 @@ export const VideoPlayer = ({ src, title, poster, contentId, contentType, onClos
           
           manifestLoadingTimeOut: 20000,
           manifestLoadingMaxRetryTimeout: 20000,
-          fragLoadTimeout: 20000,
+          fragLoadingTimeOut: 20000,
           xhrSetup: (xhr) => {
             xhr.timeout = 20000;
           },
